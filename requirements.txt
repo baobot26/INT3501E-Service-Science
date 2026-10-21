@@ -1,0 +1,10 @@
+osmnx
+geopandas
+rasterio
+shapely
+pandas
+numpy
+pulp
+folium
+streamlit
+scipy
