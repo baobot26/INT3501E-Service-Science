@@ -1,0 +1,25 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# cache của osmnx
+cache/
+
+# dữ liệu nặng
+data/*.tif
+data/*.graphml
+
+# kết quả chạy lại được
+data/dist.npy
+
+# file riêng của máy
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# bí mật và log
+.env
+*.log
