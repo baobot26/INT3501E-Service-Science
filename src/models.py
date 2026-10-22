@@ -1,11 +1,11 @@
-"""Ba mô hình chọn vị trí đặt tủ: set covering, maximal covering, p-median.
+"""Three locker-placement models: set covering, maximal covering, p-median.
 
-Đọc data/dist.npy, data/demand.csv, data/candidates.csv.
-Ghi results/results.csv, mỗi dòng là một lời giải.
+Reads data/dist.npy, data/demand.csv, data/candidates.csv.
+Writes results/results.csv, one row per solution.
 
-Set covering và maximal covering giải đúng bằng MILP (scipy, solver HiGHS).
-P-median có 1544 x 481 biến gán nên dùng heuristic hoán đổi (Teitz-Bart)
-chạy nhiều lần từ các điểm xuất phát khác nhau.
+Set covering and maximal covering are solved exactly with MILP (scipy, HiGHS solver).
+P-median has 1544 x 481 assignment variables, so it uses a swap heuristic (Teitz-Bart)
+run several times from different starting points.
 """
 
 import time
@@ -19,15 +19,15 @@ from scipy.sparse import csr_matrix, hstack, identity
 DATA = Path("data")
 OUT = Path("results")
 
-RADII = [300, 500, 800, 1000]   # bán kính phục vụ (m)
-P_VALUES = list(range(3, 16))   # số tủ
-BIG = 10_000                    # khoảng cách thay cho ô không đi tới được
-TIME_LIMIT = 30                 # giây tối đa cho mỗi bài MILP
-RESTARTS = 10                   # số lần chạy p-median từ điểm xuất phát ngẫu nhiên
+RADII = [300, 500, 800, 1000]   # service radius (m)
+P_VALUES = list(range(3, 16))   # number of lockers
+BIG = 10_000                    # stand-in distance for unreachable cells
+TIME_LIMIT = 30                 # max seconds per MILP
+RESTARTS = 10                   # p-median restarts from random starting points
 
 
 def set_covering(D, R):
-    """Ít tủ nhất để phủ mọi điểm nhu cầu có thể phủ được trong bán kính R."""
+    """Fewest lockers covering every demand point that is coverable within radius R."""
     cover = D <= R
     coverable = cover.any(axis=1)
     A = csr_matrix(cover[coverable].astype(float))
@@ -40,16 +40,16 @@ def set_covering(D, R):
         options={"time_limit": TIME_LIMIT},
     )
     if res.x is None:
-        raise RuntimeError(f"set covering R={R}: không có lời giải ({res.message})")
+        raise RuntimeError(f"set covering R={R}: no solution ({res.message})")
     return np.flatnonzero(res.x > 0.5), coverable, res.status
 
 
 def max_covering(D, pop, R, p):
-    """Chọn tối đa p tủ để phủ được nhiều dân nhất trong bán kính R."""
+    """Pick at most p lockers to cover as much population as possible within radius R."""
     n, m = D.shape
     cover = csr_matrix((D <= R).astype(float))
     c = np.concatenate([np.zeros(m), -pop])
-    a_cover = hstack([-cover, identity(n)], format="csr")  # z_i <= tổng y_j quanh điểm i
+    a_cover = hstack([-cover, identity(n)], format="csr")  # z_i <= sum of y_j around point i
     a_count = csr_matrix(np.concatenate([np.ones(m), np.zeros(n)])[None, :])
     res = milp(
         c=c,
@@ -59,12 +59,12 @@ def max_covering(D, pop, R, p):
         options={"time_limit": TIME_LIMIT, "mip_rel_gap": 0.001},
     )
     if res.x is None:
-        raise RuntimeError(f"max covering R={R} p={p}: không có lời giải ({res.message})")
+        raise RuntimeError(f"max covering R={R} p={p}: no solution ({res.message})")
     return np.flatnonzero(res.x[:m] > 0.5), res.status
 
 
 def _swap_search(Dp, pop, S):
-    """Hoán đổi từng tủ với mọi điểm ứng viên cho tới khi hết cải thiện được."""
+    """Swap each locker with every candidate until no improvement remains."""
     S = list(S)
     cost = (pop * Dp[:, S].min(axis=1)).sum()
     improved = True
@@ -84,11 +84,11 @@ def _swap_search(Dp, pop, S):
 
 
 def p_median(D, pop, p, rng):
-    """Chọn p tủ để tổng quãng đường đi bộ (nhân dân số) ngắn nhất."""
+    """Pick p lockers minimizing total population-weighted walking distance."""
     Dp = np.where(np.isfinite(D), D, BIG)
     n, m = Dp.shape
 
-    # điểm xuất phát 1: tham lam, mỗi bước thêm tủ giảm chi phí nhiều nhất
+    # start 1: greedy, each step adds the locker that cuts cost the most
     S, base = [], np.full(n, np.inf)
     for _ in range(p):
         costs = (pop[:, None] * np.minimum(base[:, None], Dp)).sum(axis=0)
@@ -107,7 +107,7 @@ def p_median(D, pop, p, rng):
 
 
 def evaluate(D, pop, S):
-    """Các chỉ số chung để so sánh ba mô hình trên cùng một thước đo."""
+    """Shared metrics to compare the three models on the same scale."""
     nearest = D[:, S].min(axis=1)
     out = {f"cov_{r}": round(pop[nearest <= r].sum() / pop.sum() * 100, 2) for r in RADII}
     ok = np.isfinite(nearest)
@@ -130,30 +130,30 @@ def main():
         row["seconds"] = round(time.time() - t0, 1)
         row["note"] = note
         rows.append(row)
-        print(f"{model:13s} R={R!s:>5} p={len(S):2d}  phủ@R={row.get(f'cov_{R}', '-')}  "
-              f"tb={row['avg_dist_m']} m  ({row['seconds']}s) {note}")
+        print(f"{model:13s} R={R!s:>5} p={len(S):2d}  cov@R={row.get(f'cov_{R}', '-')}  "
+              f"avg={row['avg_dist_m']} m  ({row['seconds']}s) {note}")
 
     for R in RADII:
         t0 = time.time()
         S, coverable, status = set_covering(D, R)
         miss = pop[~coverable].sum() / pop.sum() * 100
-        note = f"{miss:.1f}% dân không có điểm ứng viên nào trong tầm"
+        note = f"{miss:.1f}% of population has no candidate in range"
         if status != 0:
-            note += "; chưa chắc tối ưu (hết thời gian)"
+            note += "; not guaranteed optimal (time limit)"
         add("set_covering", R, S, t0, note)
 
     for R in RADII:
         for p in P_VALUES:
             t0 = time.time()
             S, status = max_covering(D, pop, R, p)
-            add("max_covering", R, S, t0, "" if status == 0 else "chưa chắc tối ưu (hết thời gian)")
+            add("max_covering", R, S, t0, "" if status == 0 else "not guaranteed optimal (time limit)")
 
     for p in P_VALUES:
         t0 = time.time()
         add("p_median", "", p_median(D, pop, p, rng), t0)
 
     pd.DataFrame(rows).to_csv(OUT / "results.csv", index=False, encoding="utf-8-sig")
-    print("đã lưu results/results.csv")
+    print("saved results/results.csv")
 
 
 if __name__ == "__main__":

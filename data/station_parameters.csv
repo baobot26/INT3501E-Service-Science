@@ -1,0 +1,6 @@
+type,capacity_demand_day,fixed_cost,enabled
+amenity=parking,20000,850000000,1
+shop=supermarket,15000,650000000,1
+amenity=post_office,12000,500000000,1
+shop=convenience,8000,300000000,1
+building=apartments,8000,400000000,0

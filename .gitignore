@@ -1,25 +1,40 @@
-# python
+# Python
 __pycache__/
 *.pyc
 .venv/
 .ipynb_checkpoints/
 
-# cache của osmnx
+# osmnx cache
 cache/
 
-# dữ liệu nặng
+# large data files
 data/*.tif
 data/*.graphml
 
-# kết quả chạy lại được
+# reproducible results
 data/dist.npy
 
-# file riêng của máy
+# outputs of src/polygons.py (regenerate by rerunning the script)
+data/residential_areas*.geojson
+data/forbidden_areas.geojson
+data/candidates_feasible.csv
+data/polygon_report*.json
+data/polygon_check.html
+
+# local machine files
 .vscode/
 .idea/
 Thumbs.db
 .DS_Store
 
-# bí mật và log
+# secrets and logs
 .env
 *.log
+
+# AI tool configs
+.claude/
+.codegraph/
+.gitnexus/
+AGENTS.md
+CLAUDE.md
+docs/

@@ -1,12 +1,12 @@
-"""Tải dữ liệu đầu vào cho bài chọn vị trí tủ nhận hàng ở Cầu Giấy.
+"""Fetch input data for the locker-placement problem in Cầu Giấy.
 
-Kết quả lưu trong thư mục data/:
-    boundary.geojson      ranh giới khu vực
-    candidates.csv        các điểm có thể đặt tủ (từ OSM)
-    walk_network.graphml  mạng đường đi bộ
-    demand.csv            điểm nhu cầu và dân số (từ WorldPop)
+Outputs are saved in data/:
+    boundary.geojson      area boundary
+    candidates.csv        candidate locker sites (from OSM)
+    walk_network.graphml  walking road network
+    demand.csv            demand points and population (from WorldPop)
 
-Cần cài: pip install osmnx geopandas rasterio shapely
+Requires: pip install osmnx geopandas rasterio shapely
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ WARDS = [
     "Phường Nghĩa Đô, Hà Nội, Việt Nam",
     "Phường Yên Hòa, Hà Nội, Việt Nam",
 ]
-# nếu OSM không trả về ranh giới phường thì dùng file khác (geojson hoặc shapefile)
+# if OSM does not return ward boundaries, point this to another file (geojson or shapefile)
 BOUNDARY_FALLBACK = None
 
 WORLDPOP_TIF = "data/vnm_pop_100m.tif"
@@ -32,9 +32,9 @@ CANDIDATE_TAGS = {
     "building": ["apartments"],
 }
 
-METRIC_CRS = "EPSG:32648"  # UTM 48N, đơn vị mét
+METRIC_CRS = "EPSG:32648"  # UTM 48N, meters
 WGS84 = "EPSG:4326"
-NETWORK_BUFFER_M = 500  # lấy đường rộng ra ngoài ranh giới để điểm ở mép vẫn tính được
+NETWORK_BUFFER_M = 500  # fetch roads beyond the boundary so edge points still get distances
 
 OUT = Path("data")
 OUT.mkdir(exist_ok=True)
@@ -43,17 +43,17 @@ OUT.mkdir(exist_ok=True)
 def get_boundary():
     try:
         wards = ox.geocode_to_gdf(WARDS)
-        print(f"ranh giới: lấy được {len(wards)} phường từ OSM")
+        print(f"boundary: fetched {len(wards)} wards from OSM")
     except Exception as e:
         if BOUNDARY_FALLBACK is None:
             raise RuntimeError(
-                "không lấy được ranh giới phường từ OSM, hãy điền BOUNDARY_FALLBACK"
+                "could not fetch ward boundaries from OSM, set BOUNDARY_FALLBACK"
             ) from e
         wards = gpd.read_file(BOUNDARY_FALLBACK)
-        print("ranh giới: dùng file dự phòng")
+        print("boundary: using fallback file")
     area = gpd.GeoDataFrame(geometry=[wards.to_crs(WGS84).union_all()], crs=WGS84)
     km2 = area.to_crs(METRIC_CRS).area.iloc[0] / 1e6
-    print(f"diện tích khoảng {km2:.2f} km2 (quận Cầu Giấy cũ là 12,44 km2)")
+    print(f"area about {km2:.2f} km2 (old Cầu Giấy district is 12.44 km2)")
     area.to_file(OUT / "boundary.geojson", driver="GeoJSON")
     return area
 
@@ -62,7 +62,7 @@ def get_candidates(area):
     poly = area.geometry.iloc[0]
     feats = ox.features_from_polygon(poly, tags=CANDIDATE_TAGS).reset_index()
 
-    # địa điểm dạng đa giác (tòa nhà, bãi xe) thì lấy tâm
+    # polygon features (buildings, parking lots): use the centroid
     pts = feats.to_crs(METRIC_CRS)
     pts["geometry"] = pts.geometry.centroid
     pts = pts.to_crs(WGS84)
@@ -83,25 +83,25 @@ def get_candidates(area):
     df = df[df["type"] != "other"].reset_index(drop=True)
     df.insert(0, "id", range(len(df)))
     df.to_csv(OUT / "candidates.csv", index=False, encoding="utf-8-sig")
-    print(f"điểm ứng viên: {len(df)}")
+    print(f"candidate points: {len(df)}")
     print(df["type"].value_counts().to_string())
     return df
 
 
 def get_network(area):
     buffered = area.to_crs(METRIC_CRS).buffer(NETWORK_BUFFER_M).to_crs(WGS84).iloc[0]
-    for lan in range(5):
+    for attempt in range(5):
         try:
             G = ox.graph_from_polygon(buffered, network_type="walk")
             break
         except Exception as e:
-            cho = 30 * 2 ** lan
-            print(f"overpass đang bận, thử lại sau {cho} giây")
-            time.sleep(cho)
+            wait = 30 * 2 ** attempt
+            print(f"overpass busy, retrying in {wait}s")
+            time.sleep(wait)
     else:
-        raise RuntimeError("overpass vẫn bận sau 5 lần thử, chạy lại sau ít phút")
+        raise RuntimeError("overpass still busy after 5 attempts, try again in a few minutes")
     ox.save_graphml(G, OUT / "walk_network.graphml")
-    print(f"mạng đường đi bộ: {len(G.nodes)} nút, {len(G.edges)} đoạn")
+    print(f"walking network: {len(G.nodes)} nodes, {len(G.edges)} edges")
     return G
 
 
@@ -112,14 +112,14 @@ def get_demand(area):
     from rasterio.transform import xy
 
     if not Path(WORLDPOP_TIF).exists():
-        print(f"bỏ qua điểm nhu cầu: chưa có file {WORLDPOP_TIF}")
+        print(f"skipping demand points: missing {WORLDPOP_TIF}")
         return pd.DataFrame()
 
     with rasterio.open(WORLDPOP_TIF) as src:
         shapes = area.to_crs(src.crs).geometry
         img, transform = mask(src, shapes, crop=True, nodata=0)
         band = img[0]
-        rows, cols = np.where(band > 0)  # bỏ ô không có dân
+        rows, cols = np.where(band > 0)  # drop cells with no population
         xs, ys = xy(transform, rows, cols)
         pts = gpd.GeoDataFrame(
             {"population": band[rows, cols]},
@@ -134,7 +134,7 @@ def get_demand(area):
         "population": pts["population"].round(1),
     })
     df.to_csv(OUT / "demand.csv", index=False)
-    print(f"điểm nhu cầu: {len(df)}, tổng dân khoảng {df['population'].sum():,.0f}")
+    print(f"demand points: {len(df)}, total population about {df['population'].sum():,.0f}")
     return df
 
 
@@ -145,4 +145,4 @@ if __name__ == "__main__":
     get_candidates(area)
     get_demand(area)
     get_network(area)
-    print("xong, dữ liệu nằm trong thư mục data/")
+    print("done, data is in data/")

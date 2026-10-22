@@ -1,8 +1,8 @@
-"""Tính khoảng cách đi bộ từ mỗi điểm nhu cầu đến mỗi điểm ứng viên.
+"""Compute walking distance from each demand point to each candidate point.
 
-Đọc từ data/: demand.csv, candidates.csv, walk_network.graphml
-Ghi ra data/dist.npy: ma trận (số điểm nhu cầu x số điểm ứng viên), đơn vị mét.
-Ô nào không đi tới được trong CUTOFF_M thì để inf.
+Reads from data/: demand.csv, candidates.csv, walk_network.graphml
+Writes data/dist.npy: matrix (num demand points x num candidates), in meters.
+Entries unreachable within CUTOFF_M are set to inf.
 """
 
 import math
@@ -14,11 +14,11 @@ import pandas as pd
 from scipy.spatial import cKDTree
 
 DATA = Path("data")
-CUTOFF_M = 6000    # quãng đường đi bộ tối đa tính đến
-MAX_SNAP_M = 300   # điểm cách đường xa hơn mức này thì báo
+CUTOFF_M = 6000    # max walking distance to compute
+MAX_SNAP_M = 300   # report points farther from the road than this
 RADII = [300, 500, 800, 1000]
 
-# đổi lat/lon ra mét bằng công thức gần đúng, đủ chính xác với khu vực vài km
+# approximate lat/lon to meters, accurate enough for a few-km area
 LAT0 = 21.03
 M_PER_DEG_LAT = 111_320
 M_PER_DEG_LON = 111_320 * math.cos(math.radians(LAT0))
@@ -33,7 +33,7 @@ def to_xy(lon, lat):
 
 def load_graph():
     raw = nx.read_graphml(DATA / "walk_network.graphml")
-    G = nx.Graph()  # coi đường đi bộ là hai chiều
+    G = nx.Graph()  # treat walking paths as undirected
     for n, d in raw.nodes(data=True):
         G.add_node(n, x=float(d["x"]), y=float(d["y"]))
     for u, v, d in raw.edges(data=True):
@@ -53,14 +53,14 @@ def main():
     demand = pd.read_csv(DATA / "demand.csv")
     cand = pd.read_csv(DATA / "candidates.csv")
 
-    # mỗi điểm gắn vào nút đường gần nhất, cộng thêm đoạn đi từ điểm đó ra nút
+    # snap each point to its nearest road node, then add the off-road walk to that node
     d_snap, d_idx = tree.query(to_xy(demand["lon"], demand["lat"]))
     c_snap, c_idx = tree.query(to_xy(cand["lon"], cand["lat"]))
-    print(f"điểm nhu cầu: {len(demand)}, điểm ứng viên: {len(cand)}, nút đường: {len(nodes)}")
-    print(f"điểm nhu cầu cách đường xa nhất {d_snap.max():.0f} m, "
-          f"{(d_snap > MAX_SNAP_M).sum()} điểm xa hơn {MAX_SNAP_M} m")
-    print(f"điểm ứng viên cách đường xa nhất {c_snap.max():.0f} m, "
-          f"{(c_snap > MAX_SNAP_M).sum()} điểm xa hơn {MAX_SNAP_M} m")
+    print(f"demand points: {len(demand)}, candidates: {len(cand)}, road nodes: {len(nodes)}")
+    print(f"demand points: max snap distance {d_snap.max():.0f} m, "
+          f"{(d_snap > MAX_SNAP_M).sum()} points farther than {MAX_SNAP_M} m")
+    print(f"candidates: max snap distance {c_snap.max():.0f} m, "
+          f"{(c_snap > MAX_SNAP_M).sum()} points farther than {MAX_SNAP_M} m")
 
     dist = np.full((len(demand), len(cand)), np.inf, dtype=np.float32)
     demand_nodes = [nodes[k] for k in d_idx]
@@ -72,16 +72,16 @@ def main():
         dist[:, j] = on_road + d_snap + c_snap[j]
 
     np.save(DATA / "dist.npy", dist)
-    print(f"đã lưu data/dist.npy {dist.shape}")
-    print(f"cặp đi tới được trong {CUTOFF_M} m: {np.isfinite(dist).mean() * 100:.1f}%")
+    print(f"saved data/dist.npy {dist.shape}")
+    print(f"reachable pairs within {CUTOFF_M} m: {np.isfinite(dist).mean() * 100:.1f}%")
 
-    # nếu đặt tủ ở tất cả điểm ứng viên thì phủ được bao nhiêu dân
+    # population covered if a locker were placed at every candidate
     pop = demand["population"].to_numpy()
     nearest = dist.min(axis=1)
-    print("nếu đặt ở tất cả điểm ứng viên:")
+    print("if placed at every candidate point:")
     for r in RADII:
         share = pop[nearest <= r].sum() / pop.sum() * 100
-        print(f"  bán kính {r} m phủ {share:.1f}% dân")
+        print(f"  radius {r} m covers {share:.1f}% of population")
 
 
 if __name__ == "__main__":
