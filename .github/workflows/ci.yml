@@ -1,0 +1,14 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  docker-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # offline only: no OSM/Overpass calls, tests use in-memory fixtures
+      - run: docker build -t service-science .
+      - run: docker run --rm service-science pytest -q

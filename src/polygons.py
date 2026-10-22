@@ -65,6 +65,44 @@ def clean(g, boundary_geom_m):
     return g
 
 
+def flag_candidates(cand, cand_xy, h_geom, c_geom, params):
+    """Flag each candidate with in_residential/in_forbidden/feasible/exclusion_reason.
+
+    cand_xy is an (n, 2) metric coordinate array matching the cand rows;
+    h_geom/c_geom are metric-CRS polygons (or None). covers() counts points
+    on a polygon boundary as inside. Returns a copy; disabled types are also
+    excluded from the candidate set.
+    """
+    cand = cand.copy()
+    pt_arr = points(cand_xy[:, 0], cand_xy[:, 1])
+    cand["in_residential"] = covers(h_geom, pt_arr) if h_geom is not None else False
+    cand["in_forbidden"] = covers(c_geom, pt_arr) if c_geom is not None else False
+    missing = set(cand["type"]) - set(params["type"])
+    assert not missing, f"missing parameters for candidate types: {missing}"
+    par = params.set_index("type")
+    enabled = cand["type"].map(par["enabled"]) == 1
+    cand["feasible"] = enabled & ~cand["in_residential"] & ~cand["in_forbidden"]
+    flags = pd.DataFrame({
+        "disabled": ~enabled,
+        "residential": cand["in_residential"].to_numpy(),
+        "forbidden": cand["in_forbidden"].to_numpy(),
+    })
+    cand["exclusion_reason"] = flags.apply(lambda r: ";".join(r.index[r]), axis=1)
+    return cand
+
+
+def manhattan_reachable(demand_xy, cand_xy, radius):
+    """Per-demand flag: within Manhattan distance `radius` of any candidate.
+
+    demand_xy/cand_xy are (n, 2) metric coordinate arrays; empty cand -> all False.
+    """
+    if len(cand_xy) == 0:
+        return np.zeros(len(demand_xy), dtype=bool)
+    dist = (np.abs(demand_xy[:, None, 0] - cand_xy[None, :, 0])
+            + np.abs(demand_xy[:, None, 1] - cand_xy[None, :, 1]))
+    return (dist <= radius).any(axis=1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["A", "B"], default="A",
@@ -97,27 +135,15 @@ def main():
     # 2. flag candidates — covers counts points on the boundary too
     cand = pd.read_csv(DATA / "candidates.csv")
     assert cand["id"].is_unique and cand["lat"].notna().all() and cand["lon"].notna().all()
-    gpts = gpd.GeoDataFrame(
+    cpts = gpd.GeoDataFrame(
         geometry=gpd.points_from_xy(cand["lon"], cand["lat"]), crs=WGS84
     ).to_crs(METRIC_CRS)
-    pt_arr = points(gpts.geometry.x.to_numpy(), gpts.geometry.y.to_numpy())
-    cand["in_residential"] = covers(h_geom, pt_arr) if h_geom is not None else False
-    cand["in_forbidden"] = covers(c_geom, pt_arr) if c_geom is not None else False
+    cand_xy = np.column_stack([cpts.geometry.x.to_numpy(), cpts.geometry.y.to_numpy()])
 
     # 3. capacity/cost parameters; disabled types are also excluded from the candidate set
     params = pd.read_csv(DATA / "station_parameters.csv")
     assert (params["capacity_demand_day"] > 0).all() and (params["fixed_cost"] >= 0).all()
-    missing = set(cand["type"]) - set(params["type"])
-    assert not missing, f"missing parameters for candidate types: {missing}"
-    par = params.set_index("type")
-    enabled = cand["type"].map(par["enabled"]) == 1
-    cand["feasible"] = enabled & ~cand["in_residential"] & ~cand["in_forbidden"]
-    flags = pd.DataFrame({
-        "disabled": ~enabled,
-        "residential": cand["in_residential"].to_numpy(),
-        "forbidden": cand["in_forbidden"].to_numpy(),
-    })
-    cand["exclusion_reason"] = flags.apply(lambda r: ";".join(r.index[r]), axis=1)
+    cand = flag_candidates(cand, cand_xy, h_geom, c_geom, params)
 
     print(f"\ncandidates by type (feasible / total):")
     for t, g in cand.groupby("type"):
@@ -133,17 +159,13 @@ def main():
     dpts = gpd.GeoDataFrame(
         geometry=gpd.points_from_xy(demand["lon"], demand["lat"]), crs=WGS84
     ).to_crs(METRIC_CRS)
-    feas_idx = cand.index[cand["feasible"]]
-    if len(feas_idx):
-        dist = (np.abs(dpts.geometry.x.to_numpy()[:, None] - gpts.geometry.x.to_numpy()[feas_idx])
-                + np.abs(dpts.geometry.y.to_numpy()[:, None] - gpts.geometry.y.to_numpy()[feas_idx]))
-        reachable = (dist <= args.radius).any(axis=1)
-    else:
-        reachable = np.zeros(len(demand), dtype=bool)
+    demand_xy = np.column_stack([dpts.geometry.x.to_numpy(), dpts.geometry.y.to_numpy()])
+    reachable = manhattan_reachable(demand_xy, cand_xy[cand["feasible"].to_numpy()], args.radius)
     reach_pct = daily[reachable].sum() / total * 100
 
     # 5. capacity upper bound
-    capacity = float((cand.loc[feas_idx, "type"].map(par["capacity_demand_day"])
+    par = params.set_index("type")
+    capacity = float((cand.loc[cand["feasible"], "type"].map(par["capacity_demand_day"])
                       * args.cap_scale).sum())
     need = args.alpha * total
 
