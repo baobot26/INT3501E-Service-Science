@@ -1,10 +1,10 @@
-osmnx
-geopandas
+osmnx==2.1.1
+geopandas==1.2.0
+numpy==2.5.4
+pandas==3.1.0
+scipy==1.18.1
+shapely==2.2.0
+networkx==3.7
+folium==0.20.0
+# only needed by src/fetch_data.py to read the WorldPop tif; not installed in the local venv
 rasterio
-shapely
-pandas
-numpy
-pulp
-folium
-streamlit
-scipy

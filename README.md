@@ -29,7 +29,6 @@ Kết quả kiểm tra polygon (R = 500 m, α = 0,95):
 | B: khối nhà ở (building footprints) | 184 / 481 | 97,94% | ✅ |
 
 → Kịch bản chính của MVP: **phương án B, R = 500 m, α = 0,95**.
-Chi tiết kế hoạch: [`docs/implementation-plan-updated.md`](docs/implementation-plan-updated.md).
 
 ## Tech stack
 
@@ -40,12 +39,14 @@ Chi tiết kế hoạch: [`docs/implementation-plan-updated.md`](docs/implementa
 - **scipy.optimize.milp** (solver HiGHS) — giải bài toán MILP
 - **networkx** — khoảng cách đi bộ trên đồ thị đường (baseline)
 - **folium** — bản đồ HTML để kiểm tra trực quan
+- **pytest** — bộ test offline (không gọi mạng, dùng fixture trong bộ nhớ)
+- **Docker** — image `python:3.12-slim` đóng gói toàn bộ môi trường chạy
 
 Cài đặt:
 
 ```bash
-uv venv .venv && uv pip install --python .venv/bin/python osmnx scipy folium
-# hoặc: pip install -r requirements.txt
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
+# hoặc: pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 ## Cấu trúc mã nguồn
@@ -58,6 +59,11 @@ src/
 ├── distances.py     # Ma trận khoảng cách đi bộ demand→ứng viên (baseline, ghi dist.npy)
 └── models.py        # 3 mô hình đối chứng: set covering, max covering, p-median
 
+tests/
+├── conftest.py      # Fixture chung: tham số trạm, ứng viên nhỏ, polygon H/C
+├── test_polygons.py # Lọc ứng viên, điểm trên biên, manhattan_reachable
+└── test_models.py   # Đối chiếu brute-force: set/max covering, p-median, evaluate
+
 data/
 ├── boundary.geojson, candidates.csv, demand.csv   # dữ liệu đầu vào
 ├── station_parameters.csv       # công suất / chi phí / bật-tắt theo loại trạm
@@ -69,9 +75,11 @@ results/
 ├── results_walking_all.csv      # kết quả baseline (khoảng cách đi bộ) — không ghi đè
 └── results.csv                  # kết quả 3 mô hình đối chứng
 
-docs/
-├── implementation-plan.md          # kế hoạch gốc (đề bài)
-└── implementation-plan-updated.md  # kế hoạch cập nhật theo số liệu polygon thật
+Dockerfile, .dockerignore        # image chạy + loại trừ data/cache khi build
+pytest.ini                       # cấu hình pytest (testpaths, pythonpath)
+requirements.txt                 # dependencies chạy (pin phiên bản)
+requirements-dev.txt             # pytest, pytest-cov
+.github/workflows/ci.yml         # CI: docker build + pytest trong container
 ```
 
 ## Cách chạy
@@ -83,6 +91,22 @@ docs/
 .venv/bin/python src/models.py                    # 4. chạy 3 mô hình đối chứng
 ```
 
-Các bước tiếp theo của MVP (ma trận khoảng cách Manhattan, mô hình chính 2 pha,
-bộ kiểm tra ràng buộc độc lập, xuất kết quả theo `run_id`) được mô tả trong
-`docs/implementation-plan-updated.md`.
+### Chạy test
+
+```bash
+.venv/bin/python -m pytest -q                     # offline, không cần mạng
+```
+
+### Chạy bằng Docker
+
+```bash
+docker build -t service-science .
+docker run --rm service-science                   # mặc định: chạy pytest
+# chạy pipeline với dữ liệu thật (bind-mount data/ và results/):
+docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" \
+  service-science python src/polygons.py --mode B
+```
+
+Lưu ý: image không chứa `data/` và `results/` (bị loại qua `.dockerignore`);
+khi chạy pipeline thật phải bind-mount hai thư mục này như trên.
+</sleev-id-m0035>
