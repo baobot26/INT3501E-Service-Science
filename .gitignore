@@ -17,6 +17,9 @@ data/dist.npy
 data/dist_l1.npy
 data/dist_l1_manifest.json
 
+# pipeline outputs (regenerate with src/run.py)
+results/
+
 # outputs of src/polygons.py (regenerate by rerunning the script)
 data/residential_areas*.geojson
 data/forbidden_areas.geojson
