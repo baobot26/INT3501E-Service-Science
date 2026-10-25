@@ -101,7 +101,14 @@ requirements-dev.txt             # pytest, pytest-cov
 .venv/bin/python src/polygons.py --mode B         # 2. lọc ứng viên theo polygon (A hoặc B)
 .venv/bin/python src/distances.py                 # 3. ma trận khoảng cách đi bộ (baseline)
 .venv/bin/python src/models.py                    # 4. chạy 3 mô hình đối chứng
+.venv/bin/python -m src.distances_l1              # 5. ma trận Manhattan (EPSG:32648) cho mô hình chính
+.venv/bin/python -m src.run --radius 500 --alpha 0.95 --cap-scale 1.0   # 6. mô hình chính: MILP hai pha
 ```
+
+Bước 6 ghi kết quả vào `results/<run_id>/` (mỗi lần chạy một thư mục, không ghi đè).
+Exit code: 0 = giải được + kiểm định PASS; 1 = bất khả thi (precheck hoặc solver);
+2 = lỗi đầu vào; 3 = lỗi khác. Flag chính: `--radius`, `--alpha`, `--cap-scale`,
+`--time-limit`, `--data-dir`, `--results-dir`.
 
 ### Chạy test
 

@@ -1,0 +1,22 @@
+{
+  "run_id": "20261025_132839_776725_R800_a0.9_cap1",
+  "status": "infeasible",
+  "mode": "",
+  "radius_m": 800.0,
+  "alpha": 0.9,
+  "cap_scale": 1.0,
+  "time_limit": 300.0,
+  "mip_rel_gap": 0.0,
+  "distance_metric": "manhattan_l1",
+  "crs": "EPSG:32648",
+  "phase1_status": "infeasible",
+  "precheck": {
+    "coverage_upper_bound_pct": 99.3334,
+    "required_coverage_pct": 90.0,
+    "capacity_upper_bound": 1959000.0,
+    "required_capacity": 529348.6799999999,
+    "coverage_ok": true,
+    "capacity_ok": true,
+    "status": "ok"
+  }
+}
