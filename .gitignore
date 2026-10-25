@@ -14,6 +14,8 @@ data/*.graphml
 
 # reproducible results
 data/dist.npy
+data/dist_l1.npy
+data/dist_l1_manifest.json
 
 # outputs of src/polygons.py (regenerate by rerunning the script)
 data/residential_areas*.geojson
