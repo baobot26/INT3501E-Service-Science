@@ -1,0 +1,9 @@
+{
+  "coverage_upper_bound_pct": 99.3334,
+  "required_coverage_pct": 95.0,
+  "capacity_upper_bound": 1959000.0,
+  "required_capacity": 558756.94,
+  "coverage_ok": true,
+  "capacity_ok": true,
+  "status": "ok"
+}

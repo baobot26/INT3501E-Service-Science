@@ -53,16 +53,24 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt -r
 
 ```
 src/
-├── fetch_data.py    # Tải dữ liệu đầu vào: ranh giới, ứng viên OSM, demand WorldPop, mạng đi bộ
-├── polygons.py      # Kiểm tra polygon khu dân cư (H) / khu cấm (C), lọc ứng viên,
-│                    #   tính 2 cận trên (độ phủ, năng lực) và xuất bản đồ kiểm tra
-├── distances.py     # Ma trận khoảng cách đi bộ demand→ứng viên (baseline, ghi dist.npy)
-└── models.py        # 3 mô hình đối chứng: set covering, max covering, p-median
+├── fetch_data.py       # Tải dữ liệu đầu vào: ranh giới, ứng viên OSM, demand WorldPop, mạng đi bộ
+├── polygons.py         # Kiểm tra polygon khu dân cư (H) / khu cấm (C), lọc ứng viên,
+│                       #   tính 2 cận trên (độ phủ, năng lực) và xuất bản đồ kiểm tra
+├── distances.py        # Ma trận khoảng cách đi bộ demand→ứng viên (baseline, ghi dist.npy)
+├── models.py           # 3 mô hình đối chứng: set covering, max covering, p-median
+├── preprocessing.py    # Đọc/validate đầu vào, xây ProblemData thống nhất cho pipeline
+├── distances_l1.py     # Ma trận khoảng cách Manhattan (EPSG:32648) + manifest
+├── model_main.py       # Mô hình chính: MILP hai pha (min trạm → min chi phí)
+├── evaluate.py         # Kiểm định độc lập: gán lại nearest, kiểm coverage/capacity/objective
+├── export.py           # Ghi kết quả per-run (summary, stations, assignments, validation, config)
+└── run.py              # Entry point: một lệnh chạy toàn bộ pipeline
 
 tests/
-├── conftest.py      # Fixture chung: tham số trạm, ứng viên nhỏ, polygon H/C
-├── test_polygons.py # Lọc ứng viên, điểm trên biên, manhattan_reachable
-└── test_models.py   # Đối chiếu brute-force: set/max covering, p-median, evaluate
+├── conftest.py         # Fixture chung: tham số trạm, ứng viên nhỏ, polygon H/C
+├── test_polygons.py    # Lọc ứng viên, điểm trên biên, manhattan_reachable
+├── test_models.py      # Đối chiếu brute-force: set/max covering, p-median, evaluate
+├── test_model_main.py  # Brute-force oracle trên 40 instances ngẫu nhiên + edge cases
+└── test_pipeline.py    # End-to-end pipeline, precheck, overwrite guard, alpha validation
 
 data/
 ├── boundary.geojson, candidates.csv, demand.csv   # dữ liệu đầu vào
@@ -73,7 +81,11 @@ data/
 
 results/
 ├── results_walking_all.csv      # kết quả baseline (khoảng cách đi bộ) — không ghi đè
-└── results.csv                  # kết quả 3 mô hình đối chứng
+├── results.csv                  # kết quả 3 mô hình đối chứng
+└── <run_id>/                    # kết quả mô hình chính, mỗi lần chạy một thư mục riêng
+    ├── summary.json, config.json, precheck.json
+    ├── selected_stations.csv, assigned_demand.csv
+    └── validation.json
 
 Dockerfile, .dockerignore        # image chạy + loại trừ data/cache khi build
 pytest.ini                       # cấu hình pytest (testpaths, pythonpath)
@@ -89,7 +101,14 @@ requirements-dev.txt             # pytest, pytest-cov
 .venv/bin/python src/polygons.py --mode B         # 2. lọc ứng viên theo polygon (A hoặc B)
 .venv/bin/python src/distances.py                 # 3. ma trận khoảng cách đi bộ (baseline)
 .venv/bin/python src/models.py                    # 4. chạy 3 mô hình đối chứng
+.venv/bin/python -m src.distances_l1              # 5. ma trận Manhattan (EPSG:32648) cho mô hình chính
+.venv/bin/python -m src.run --radius 500 --alpha 0.95 --cap-scale 1.0   # 6. mô hình chính: MILP hai pha
 ```
+
+Bước 6 ghi kết quả vào `results/<run_id>/` (mỗi lần chạy một thư mục, không ghi đè).
+Exit code: 0 = giải được + kiểm định PASS; 1 = bất khả thi (precheck hoặc solver);
+2 = lỗi đầu vào; 3 = lỗi khác. Flag chính: `--radius`, `--alpha`, `--cap-scale`,
+`--time-limit`, `--data-dir`, `--results-dir`.
 
 ### Chạy test
 
