@@ -1,0 +1,29 @@
+{
+  "run_id": "20261025_132839_760808_R800_a0.95_cap2",
+  "status": "feasible_time_limit",
+  "mode": "",
+  "radius_m": 800.0,
+  "alpha": 0.95,
+  "cap_scale": 2.0,
+  "time_limit": 900.0,
+  "mip_rel_gap": 0.0,
+  "distance_metric": "manhattan_l1",
+  "crs": "EPSG:32648",
+  "phase1_status": "feasible_time_limit",
+  "phase2_status": "solver_error",
+  "phase1_seconds": 910.72,
+  "phase2_seconds": 900.107,
+  "station_count": 19,
+  "total_cost": 14500000000.0,
+  "coverage_pct": 95.3284,
+  "validation_passed": true,
+  "precheck": {
+    "coverage_upper_bound_pct": 99.3334,
+    "required_coverage_pct": 95.0,
+    "capacity_upper_bound": 3918000.0,
+    "required_capacity": 558756.94,
+    "coverage_ok": true,
+    "capacity_ok": true,
+    "status": "ok"
+  }
+}
