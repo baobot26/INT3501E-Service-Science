@@ -24,9 +24,14 @@ def parse_args(argv):
     p.add_argument("--radius", type=float, default=500.0)
     p.add_argument("--alpha", type=float, default=0.95)
     p.add_argument("--cap-scale", type=float, default=1.0)
+    p.add_argument("--demand-scale", type=float, default=1.0)
     p.add_argument("--time-limit", type=float, default=300.0)
     p.add_argument("--mip-rel-gap", type=float, default=0.0)
     p.add_argument("--mode", default="", help="label only, stored in config")
+    p.add_argument("--objective", default="min_stations_then_cost",
+                   choices=["min_stations_then_cost", "fixed_station_count"])
+    p.add_argument("--station-count", type=int, default=None,
+                   help="required when --objective=fixed_station_count")
     return p.parse_args(argv)
 
 
@@ -61,6 +66,10 @@ def main(argv=None) -> int:
         raise SystemExit("alpha must be in [0, 1]")
     if args.radius <= 0 or args.cap_scale <= 0 or args.time_limit <= 0:
         raise SystemExit("radius, cap-scale and time-limit must be positive")
+    if args.demand_scale <= 0:
+        raise SystemExit("demand-scale must be positive")
+    if args.objective == "fixed_station_count" and args.station_count is None:
+        raise SystemExit("--station-count required with --objective=fixed_station_count")
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_id = f"{ts}_R{args.radius:g}_a{args.alpha:g}_cap{args.cap_scale:g}"
@@ -70,6 +79,9 @@ def main(argv=None) -> int:
     config = {
         "run_id": run_id, "mode": args.mode, "radius_m": args.radius,
         "alpha": args.alpha, "cap_scale": args.cap_scale,
+        "demand_scale": args.demand_scale,
+        "objective_mode": args.objective,
+        "station_count": args.station_count,
         "time_limit": args.time_limit, "mip_rel_gap": args.mip_rel_gap,
         "distance_metric": "manhattan_l1", "crs": "EPSG:32648",
     }
@@ -101,26 +113,32 @@ def main(argv=None) -> int:
         params_df = preprocessing.load_station_parameters(
             args.data_dir / "station_parameters.csv")
         problem = preprocessing.build_problem_data(
-            demand_df, cand_df, params_df, args.radius, args.alpha, args.cap_scale)
+            demand_df, cand_df, params_df, args.radius, args.alpha,
+            cap_scale=args.cap_scale, demand_scale=args.demand_scale)
         dist, manifest = distances_l1.load(args.data_dir)
         preprocessing.validate_distance_manifest(
             dist, manifest, problem.demand_ids, problem.candidate_ids)
     except InputError as exc:
         print(f"input error: {exc}", file=sys.stderr)
         return finish("input_error", 2)
+    except FileNotFoundError as exc:
+        print(f"input error: missing file — {exc}", file=sys.stderr)
+        return finish("input_error", 2)
 
     pre = precheck(dist, problem)
     if pre["status"] != "ok":
         return finish("precheck_infeasible", 1, pre=pre)
 
-    result = model_main.solve(problem, dist, time_limit=args.time_limit,
-                              mip_rel_gap=args.mip_rel_gap)
+    result = model_main.solve(
+        problem, dist, time_limit=args.time_limit,
+        mip_rel_gap=args.mip_rel_gap,
+        objective_mode=args.objective,
+        fixed_station_count=args.station_count)
     status = result["status"]
     if status in ("infeasible", "precheck_infeasible"):
-        return finish(status, 1, extra={"phase1_status": result["phase1_status"]}, pre=pre)
+        return finish(status, 1, extra={"solution_source": result.get("solution_source")}, pre=pre)
     if status not in ("optimal", "feasible_time_limit"):
-        return finish(status, 3, extra={"phase1_status": result["phase1_status"],
-                                        "phase2_status": result.get("phase2_status")}, pre=pre)
+        return finish(status, 3, extra={"solution_source": result.get("solution_source")}, pre=pre)
 
     selected, assignment = result["selected"], result["assignment"]
     validation = evaluate.validate_solution(
@@ -128,20 +146,17 @@ def main(argv=None) -> int:
         result["station_count"], result["total_cost"])
     if not validation["valid"]:
         return finish("validation_failed", 3,
-                      extra={"phase1_status": result["phase1_status"],
-                             "phase2_status": result.get("phase2_status"),
-                             "station_count": result["station_count"]},
+                      extra={"station_count": result["station_count"],
+                             "solution_source": result.get("solution_source")},
                       validation=validation, pre=pre)
 
     export.write_outputs(out_dir, problem, dist, selected, assignment,
-                         validation,
-                         summary={}, config={}, precheck=pre)
-    # rewrite summary with full metrics (export.write_outputs left a stub)
+                         validation, precheck=pre)
     extra = {
-        "phase1_status": result["phase1_status"],
-        "phase2_status": result.get("phase2_status"),
         "phase1_seconds": result.get("phase1_seconds"),
         "phase2_seconds": result.get("phase2_seconds"),
+        "total_seconds": result.get("total_seconds"),
+        "solution_source": result.get("solution_source"),
         "station_count": result["station_count"],
         "total_cost": result["total_cost"],
         "coverage_pct": validation["metrics"]["coverage_pct"],

@@ -34,8 +34,7 @@ def build_assignment_neighbors(dist: np.ndarray, candidate_ids: np.ndarray,
     return neighbors
 
 
-def build_milp(problem: ProblemData, dist: np.ndarray,
-               neighbors: list[np.ndarray]) -> dict:
+def build_milp(problem: ProblemData, neighbors: list[np.ndarray]) -> dict:
     """Build the sparse constraint matrix. Variable layout: x_j (0..m-1), then y_ij."""
     m = len(problem.candidate_ids)
     n = len(problem.demand_ids)
@@ -112,7 +111,7 @@ def build_milp(problem: ProblemData, dist: np.ndarray,
     }
 
 
-def _classify(res, time_limited: bool) -> str:
+def _classify(res) -> str:
     if res.status == 0:
         return "optimal"
     if res.status == 1 and res.x is not None:
@@ -125,7 +124,7 @@ def _classify(res, time_limited: bool) -> str:
 def solve(problem: ProblemData, dist: np.ndarray,
           time_limit: float = 300.0, mip_rel_gap: float = 0.0) -> dict:
     neighbors = build_assignment_neighbors(dist, problem.candidate_ids, problem.radius)
-    model = build_milp(problem, dist, neighbors)
+    model = build_milp(problem, neighbors)
     m, nvar = model["m"], model["nvar"]
     integrality = np.ones(nvar)
     bounds = Bounds(np.zeros(nvar), np.ones(nvar))

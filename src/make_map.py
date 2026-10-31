@@ -21,9 +21,12 @@ COLORS = {
     "building=apartments": "#ff7f0e",
 }
 
+REQUIRED_FILES = ("summary.json", "selected_stations.csv", "assigned_demand.csv")
+
 
 def latest_run(results_dir):
-    runs = [p for p in Path(results_dir).iterdir() if (p / "selected_stations.csv").exists()]
+    runs = [p for p in Path(results_dir).iterdir()
+            if all((p / f).exists() for f in REQUIRED_FILES)]
     if not runs:
         raise SystemExit(f"không có lần chạy nào trong {results_dir}, hãy chạy src.run trước")
     return max(runs, key=lambda p: p.stat().st_mtime)
@@ -32,7 +35,10 @@ def latest_run(results_dir):
 def build_map(run_dir, boundary_path):
     run_dir = Path(run_dir)
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
-    stations = pd.read_csv(run_dir / "selected_stations.csv")
+    try:
+        stations = pd.read_csv(run_dir / "selected_stations.csv")
+    except pd.errors.EmptyDataError:
+        stations = pd.DataFrame()
     demand = pd.read_csv(run_dir / "assigned_demand.csv")
     radius = summary.get("radius_m", 500)
 
@@ -77,15 +83,22 @@ def build_map(run_dir, boundary_path):
 
     total = demand["daily_demand"].sum()
     served_total = demand.loc[demand["served"].astype(bool), "daily_demand"].sum()
-    cost = stations["fixed_cost"].sum()
+    cost = stations["fixed_cost"].sum() if not stations.empty else 0
     legend = "".join(
         f'<div><span style="background:{c};width:10px;height:10px;display:inline-block;'
         f'border:1px solid #000;border-radius:50%"></span> {t}</div>' for t, c in COLORS.items())
+
+    mode = summary.get("mode", "")
+    objective = summary.get("objective_mode", "")
+    demand_scale = summary.get("demand_scale", 1.0)
+    cap_scale = summary.get("cap_scale", 1.0)
     box = f"""
     <div style="position:fixed;bottom:20px;left:20px;z-index:9999;background:white;
                 padding:10px 14px;border:1px solid #999;border-radius:6px;font:13px sans-serif">
       <b>Lần chạy:</b> {summary.get('run_id', run_dir.name)}<br>
-      R = {radius:g} m, alpha = {summary.get('alpha')}, cap_scale = {summary.get('cap_scale')}<br>
+      Mode: {mode or 'N/A'} | Objective: {objective or 'min_stations_then_cost'}<br>
+      R = {radius:g} m, alpha = {summary.get('alpha')}, cap_scale = {cap_scale},
+      demand_scale = {demand_scale}<br>
       Số trạm: {len(stations)}, tổng chi phí cố định: {cost:,.0f}<br>
       Phủ: {served_total / total * 100:.1f}% nhu cầu<br><hr style="margin:6px 0">{legend}
     </div>"""

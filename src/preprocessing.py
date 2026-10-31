@@ -81,7 +81,14 @@ def build_problem_data(
     radius: float,
     alpha: float,
     cap_scale: float = 1.0,
+    demand_scale: float = 1.0,
+    type_parameters: dict | None = None,
 ) -> ProblemData:
+    """Build ProblemData with optional in-memory overrides.
+
+    type_parameters: dict mapping type -> {enabled, capacity, fixed_cost}.
+    When provided, overrides per-type params without touching source CSV.
+    """
     feasible = cand_df[cand_df["feasible"]].copy()
     if feasible.empty:
         raise InputError("no feasible candidates after filtering")
@@ -92,6 +99,19 @@ def build_problem_data(
     if missing.any():
         bad_types = merged.loc[missing, "type"].unique().tolist()
         raise InputError(f"candidates with type not in station_parameters: {bad_types}")
+
+    # apply type-level overrides
+    if type_parameters:
+        for t, overrides in type_parameters.items():
+            mask = merged["type"] == t
+            if not mask.any():
+                continue
+            if "enabled" in overrides:
+                merged.loc[mask, "enabled"] = int(overrides["enabled"])
+            if "capacity" in overrides:
+                merged.loc[mask, "capacity_demand_day"] = overrides["capacity"]
+            if "fixed_cost" in overrides:
+                merged.loc[mask, "fixed_cost"] = overrides["fixed_cost"]
 
     # filter disabled types
     merged = merged[merged["enabled"] == 1].copy()
@@ -106,7 +126,7 @@ def build_problem_data(
         candidate_ids=merged["id"].values.astype(int),
         demand_xy=np.zeros((n, 2)),  # filled later by distances_l1
         candidate_xy=np.zeros((m, 2)),
-        daily_demand=demand_df["daily_demand"].values.astype(float),
+        daily_demand=(demand_df["daily_demand"].values * demand_scale).astype(float),
         capacities=(merged["capacity_demand_day"].values * cap_scale).astype(float),
         fixed_costs=merged["fixed_cost"].values.astype(float),
         candidate_types=merged["type"].tolist(),
