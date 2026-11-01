@@ -6,6 +6,4 @@ scipy==1.18.1
 shapely==2.2.0
 networkx==3.7
 folium==0.20.0
-streamlit>=1.30.0
-# only needed by src/fetch_data.py to read the WorldPop tif; not installed in the local venv
-rasterio
+streamlit==1.66.1

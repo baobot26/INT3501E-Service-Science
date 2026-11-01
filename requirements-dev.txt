@@ -1,2 +1,4 @@
 pytest
 pytest-cov
+# Only needed when running src/fetch_data.py to read the WorldPop raster.
+rasterio

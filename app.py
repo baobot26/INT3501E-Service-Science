@@ -56,7 +56,7 @@ with st.sidebar.form("scenario"):
 
     objective_label = st.selectbox("Mục tiêu", [
         "Ít trạm nhất, rồi rẻ nhất",
-        "Cố định số trạm p, tối thiểu chi phí",
+        "Cố định số trạm p, tối thiểu chi phí (thử nghiệm)",
     ])
     objective_mode = ("min_stations_then_cost"
                       if objective_label.startswith("Ít")
@@ -64,6 +64,7 @@ with st.sidebar.form("scenario"):
 
     station_count = None
     if objective_mode == "fixed_station_count":
+        st.caption("Fixed-p có thể hết thời gian trên dữ liệu thực; dùng chế độ này để thử nghiệm.")
         station_count = st.number_input("Số trạm p", min_value=0,
                                         max_value=int(dist.shape[1]),
                                         value=10, step=1)

@@ -93,10 +93,10 @@ results/
     ├── selected_stations.csv, assigned_demand.csv
     └── validation.json
 
-Dockerfile, .dockerignore        # image chạy + loại trừ data/cache khi build
+Dockerfile, .dockerignore        # image test/app, loại trừ cache và kết quả chạy
 pytest.ini                       # cấu hình pytest (testpaths, pythonpath)
 requirements.txt                 # dependencies chạy (pin phiên bản)
-requirements-dev.txt             # pytest, pytest-cov
+requirements-dev.txt             # pytest, pytest-cov và rasterio cho fetch_data.py
 .github/workflows/ci.yml         # CI: docker build + pytest trong container
 ```
 
@@ -149,6 +149,7 @@ và tham số như CLI (`src/run.py`), nên hai đường cho kết quả giốn
 Deploy lên Streamlit Community Cloud: repo đã có `app.py` ở gốc, `requirements.txt`
 (kể cả `streamlit`) và `.streamlit/config.toml`. Trong Cloud, chọn repo, nhánh và
 file entrypoint `app.py`; Cloud tự cài `requirements.txt` và chạy `streamlit run app.py`.
+`rasterio` chỉ nằm trong `requirements-dev.txt` vì không cần cho app.
 
 ### Chạy test
 
@@ -166,6 +167,6 @@ docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" \
   service-science python src/polygons.py --mode B
 ```
 
-Lưu ý: image không chứa `data/` và `results/` (bị loại qua `.dockerignore`);
-khi chạy pipeline thật phải bind-mount hai thư mục này như trên.
+Lưu ý: image chứa dữ liệu đầu vào tối thiểu để chạy Streamlit smoke test;
+`results/` vẫn không được đóng gói và nên bind-mount khi chạy pipeline thật.
 </sleev-id-m0035>
