@@ -12,17 +12,18 @@ from src.preprocessing import ProblemData
 
 def write_outputs(out_dir: Path, problem: ProblemData, dist: np.ndarray,
                   selected_idx: np.ndarray, assignment_idx: np.ndarray,
-                  validation: dict, summary: dict, config: dict,
+                  validation: dict,
                   precheck: dict | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    (out_dir / "config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-    (out_dir / "validation.json").write_text(json.dumps(validation, indent=2, ensure_ascii=False, default=float), encoding="utf-8")
+    (out_dir / "validation.json").write_text(
+        json.dumps(validation, indent=2, ensure_ascii=False, default=float),
+        encoding="utf-8")
     if precheck is not None:
-        (out_dir / "precheck.json").write_text(json.dumps(precheck, indent=2, ensure_ascii=False), encoding="utf-8")
+        (out_dir / "precheck.json").write_text(
+            json.dumps(precheck, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # selected stations
+    # selected stations (always write header even if empty)
     loads = validation.get("loads", np.zeros(len(problem.candidate_ids)))
     rows = []
     for j in selected_idx:
@@ -38,7 +39,9 @@ def write_outputs(out_dir: Path, problem: ProblemData, dist: np.ndarray,
             "utilization": load / cap if cap > 0 else 0.0,
             "fixed_cost": problem.fixed_costs[j],
         })
-    pd.DataFrame(rows).to_csv(out_dir / "selected_stations.csv", index=False)
+    columns = ["candidate_id", "type", "lat", "lon", "capacity", "load",
+               "utilization", "fixed_cost"]
+    pd.DataFrame(rows, columns=columns).to_csv(out_dir / "selected_stations.csv", index=False)
 
     # assigned demand
     rows = []

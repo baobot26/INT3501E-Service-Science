@@ -6,6 +6,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import Point
 
 from src.preprocessing import (InputError, load_candidates, load_demand,
@@ -24,19 +25,20 @@ def _project_to_32648(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     return coords
 
 
-def compute(data_dir: Path, mode: str | None = None) -> Path:
-    """Compute and save the L1 distance matrix. Returns path to npy."""
-    data_dir = Path(data_dir)
-    demand_df = load_demand(data_dir / "demand.csv")
-    cand_df = load_candidates(data_dir / "candidates_feasible.csv")
-    feasible = cand_df[cand_df["feasible"]].copy()
-    # match build_problem_data: also drop disabled types so manifest ids align
-    params_df = load_station_parameters(data_dir / "station_parameters.csv")
-    feasible = feasible.merge(params_df[["type", "enabled"]], on="type", how="left")
-    if feasible["enabled"].isna().any():
-        raise InputError("candidate type missing from station_parameters.csv")
-    feasible = feasible[feasible["enabled"] == 1]
+def compute_matrix(demand_df: pd.DataFrame, cand_df: pd.DataFrame,
+                   params_df: pd.DataFrame) -> tuple[np.ndarray, dict]:
+    """Return the L1 distance matrix and its manifest, without writing files.
 
+    Keep every polygon-feasible candidate, including types the station
+    parameters disable: the matrix must cover all types so the app can toggle
+    a type on and off. Disabled types are locked out of the model (x_j = 0),
+    not removed from the matrix.
+    """
+    feasible = cand_df[cand_df["feasible"]].copy()
+    known = set(params_df["type"])
+    unknown = set(feasible["type"]) - known
+    if unknown:
+        raise InputError(f"candidate type missing from station_parameters.csv: {sorted(unknown)}")
     if feasible.empty:
         raise InputError("no feasible candidates for distance computation")
 
@@ -48,9 +50,6 @@ def compute(data_dir: Path, mode: str | None = None) -> Path:
     dy = np.abs(demand_xy[:, 1:2] - cand_xy[:, 1:2].T)  # (n, m)
     dist = (dx + dy).astype(np.float32)
 
-    npy_path = data_dir / NPY_NAME
-    np.save(npy_path, dist)
-
     manifest = {
         "metric": "manhattan_l1",
         "crs": "EPSG:32648",
@@ -59,6 +58,19 @@ def compute(data_dir: Path, mode: str | None = None) -> Path:
         "demand_count": len(demand_df),
         "candidate_count": len(feasible),
     }
+    return dist, manifest
+
+
+def compute(data_dir: Path, mode: str | None = None) -> Path:
+    """Compute and save the L1 distance matrix. Returns path to npy."""
+    data_dir = Path(data_dir)
+    demand_df = load_demand(data_dir / "demand.csv")
+    cand_df = load_candidates(data_dir / "candidates_feasible.csv")
+    params_df = load_station_parameters(data_dir / "station_parameters.csv")
+    dist, manifest = compute_matrix(demand_df, cand_df, params_df)
+
+    npy_path = data_dir / NPY_NAME
+    np.save(npy_path, dist)
     (data_dir / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print(f"distance matrix: {dist.shape}, saved to {npy_path}")
