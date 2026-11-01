@@ -12,10 +12,10 @@ class SolveConfig:
     station_count: int | None
     demand_scale: float
     capacity_scale: float
-    # type_parameters: dict[str, dict] with keys enabled, capacity, fixed_cost
-    type_parameters: dict = field(default_factory=dict)
     time_limit: float
     mip_rel_gap: float
+    # type_parameters: dict[str, dict] with keys enabled, capacity, fixed_cost
+    type_parameters: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.radius <= 0:

@@ -39,6 +39,7 @@ Kết quả kiểm tra polygon (R = 500 m, α = 0,95):
 - **scipy.optimize.milp** (solver HiGHS) — giải bài toán MILP
 - **networkx** — khoảng cách đi bộ trên đồ thị đường (baseline)
 - **folium** — bản đồ HTML để kiểm tra trực quan
+- **streamlit** — giao diện web điều chỉnh tham số kịch bản
 - **pytest** — bộ test offline (không gọi mạng, dùng fixture trong bộ nhớ)
 - **Docker** — image `python:3.12-slim` đóng gói toàn bộ môi trường chạy
 
@@ -52,6 +53,7 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt -r
 ## Cấu trúc mã nguồn
 
 ```
+app.py                # Giao diện Streamlit: điều chỉnh tham số kịch bản, xem kết quả
 src/
 ├── fetch_data.py       # Tải dữ liệu đầu vào: ranh giới, ứng viên OSM, demand WorldPop, mạng đi bộ
 ├── polygons.py         # Kiểm tra polygon khu dân cư (H) / khu cấm (C), lọc ứng viên,
@@ -60,9 +62,10 @@ src/
 ├── models.py           # 3 mô hình đối chứng: set covering, max covering, p-median
 ├── preprocessing.py    # Đọc/validate đầu vào, xây ProblemData thống nhất cho pipeline
 ├── distances_l1.py     # Ma trận khoảng cách Manhattan (EPSG:32648) + manifest
-├── model_main.py       # Mô hình chính: MILP hai pha (min trạm → min chi phí)
+├── config.py           # SolveConfig: tham số kịch bản dùng chung cho CLI và Streamlit
+├── model_main.py       # Mô hình chính: MILP hai pha (min trạm → min chi phí) + chế độ cố định p
 ├── evaluate.py         # Kiểm định độc lập: gán lại nearest, kiểm coverage/capacity/objective
-├── export.py           # Ghi kết quả per-run (summary, stations, assignments, validation, config)
+├── export.py           # Ghi kết quả per-run (stations, assignments, validation, precheck)
 └── run.py              # Entry point: một lệnh chạy toàn bộ pipeline
 
 tests/
@@ -70,12 +73,15 @@ tests/
 ├── test_polygons.py    # Lọc ứng viên, điểm trên biên, manhattan_reachable
 ├── test_models.py      # Đối chiếu brute-force: set/max covering, p-median, evaluate
 ├── test_model_main.py  # Brute-force oracle trên 40 instances ngẫu nhiên + edge cases
-└── test_pipeline.py    # End-to-end pipeline, precheck, overwrite guard, alpha validation
+├── test_pipeline.py    # End-to-end pipeline, precheck, overwrite guard, alpha validation
+├── test_config.py      # Validate tham số của SolveConfig
+└── test_dynamic_scenarios.py  # Bật/tắt loại trạm, hệ số, cố định p, CLI ↔ app khớp nhau
 
 data/
 ├── boundary.geojson, candidates.csv, demand.csv   # dữ liệu đầu vào
 ├── station_parameters.csv       # công suất / chi phí / bật-tắt theo loại trạm
 ├── candidates_feasible.csv      # ứng viên sau lọc polygon (kèm cờ feasible)
+├── dist_l1.npy, dist_l1_manifest.json  # ma trận Manhattan + manifest (có trong git)
 ├── residential_areas.geojson, forbidden_areas.geojson
 └── polygon_report*.json         # báo cáo kiểm tra theo cấu hình
 
@@ -107,8 +113,42 @@ requirements-dev.txt             # pytest, pytest-cov
 
 Bước 6 ghi kết quả vào `results/<run_id>/` (mỗi lần chạy một thư mục, không ghi đè).
 Exit code: 0 = giải được + kiểm định PASS; 1 = bất khả thi (precheck hoặc solver);
-2 = lỗi đầu vào; 3 = lỗi khác. Flag chính: `--radius`, `--alpha`, `--cap-scale`,
-`--time-limit`, `--data-dir`, `--results-dir`.
+2 = lỗi đầu vào; 3 = lỗi khác.
+
+Flag chính:
+
+| Flag | Ý nghĩa |
+|---|---|
+| `--radius` | bán kính phục vụ R (m) |
+| `--alpha` | tỷ lệ phủ tối thiểu, 0…1 |
+| `--cap-scale` | hệ số nhân sức chứa |
+| `--demand-scale` | hệ số nhân nhu cầu |
+| `--objective` | `min_stations_then_cost` (mặc định) hoặc `fixed_station_count` |
+| `--station-count` | số trạm p, bắt buộc khi `--objective=fixed_station_count` |
+| `--type-params` | file JSON ghi đè tham số theo loại trạm |
+| `--time-limit` | tổng ngân sách giây cho cả hai pha |
+| `--mip-rel-gap` | khoảng cách tương đối MIP |
+| `--data-dir`, `--results-dir`, `--mode` | đường dẫn, nhãn chế độ polygon |
+
+File `--type-params` có dạng
+`{"shop=convenience": {"enabled": 0, "capacity": 15000, "fixed_cost": 650000000}}` —
+ghi đè trong bộ nhớ, **không** sửa file CSV gốc.
+
+### Giao diện Streamlit
+
+```bash
+.venv/bin/python -m streamlit run app.py
+```
+
+Người dùng tự điều chỉnh trên giao diện: R, α, mục tiêu (ít trạm nhất / cố định p),
+hệ số nhu cầu, hệ số sức chứa, bật-tắt và sức chứa/chi phí của từng loại trạm,
+giới hạn thời gian và MIP gap. Nút **Chạy kịch bản** mới kích hoạt solver (widget
+trong `st.form` không chạy lại script tới khi bấm). Giao diện dùng đúng hàm giải
+và tham số như CLI (`src/run.py`), nên hai đường cho kết quả giống nhau.
+
+Deploy lên Streamlit Community Cloud: repo đã có `app.py` ở gốc, `requirements.txt`
+(kể cả `streamlit`) và `.streamlit/config.toml`. Trong Cloud, chọn repo, nhánh và
+file entrypoint `app.py`; Cloud tự cài `requirements.txt` và chạy `streamlit run app.py`.
 
 ### Chạy test
 

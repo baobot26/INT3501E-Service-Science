@@ -26,6 +26,8 @@ class ProblemData:
     radius: float
     alpha: float
     cap_scale: float
+    # bool, shape (m,): False when the candidate's station type is disabled
+    enabled_mask: np.ndarray | None = None
 
 
 class InputError(Exception):
@@ -113,10 +115,11 @@ def build_problem_data(
             if "fixed_cost" in overrides:
                 merged.loc[mask, "fixed_cost"] = overrides["fixed_cost"]
 
-    # filter disabled types
-    merged = merged[merged["enabled"] == 1].copy()
+    # Disabled types keep their rows: the distance matrix is indexed by candidate
+    # id, so dropping rows would shift every column. They are locked out of the
+    # model instead (x_j upper bound 0), see ProblemData.enabled_mask.
     if merged.empty:
-        raise InputError("no feasible candidates after filtering disabled types")
+        raise InputError("no feasible candidates")
 
     n = len(demand_df)
     m = len(merged)
@@ -137,6 +140,7 @@ def build_problem_data(
         radius=radius,
         alpha=alpha,
         cap_scale=cap_scale,
+        enabled_mask=(merged["enabled"] == 1).values.astype(bool),
     )
 
 

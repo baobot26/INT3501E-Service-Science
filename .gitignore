@@ -14,8 +14,6 @@ data/*.graphml
 
 # reproducible results
 data/dist.npy
-data/dist_l1.npy
-data/dist_l1_manifest.json
 
 # pipeline outputs (regenerate with src/run.py)
 results/
@@ -23,9 +21,11 @@ results/
 # outputs of src/polygons.py (regenerate by rerunning the script)
 data/residential_areas*.geojson
 data/forbidden_areas.geojson
-data/candidates_feasible.csv
-data/polygon_report*.json
 data/polygon_check.html
+data/polygon_report_*.json
+# data/candidates_feasible.csv, data/polygon_report.json, data/dist_l1.npy and
+# data/dist_l1_manifest.json are tracked on purpose: the Streamlit app needs
+# them to run on a fresh clone (mode A, ~850 KB total).
 
 # local machine files
 .vscode/

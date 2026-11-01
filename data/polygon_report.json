@@ -1,0 +1,46 @@
+{
+  "polygon_mode": "A",
+  "h_tags": {
+    "landuse": [
+      "residential"
+    ]
+  },
+  "c_tags": {
+    "landuse": [
+      "military",
+      "railway",
+      "cemetery"
+    ],
+    "natural": [
+      "water"
+    ]
+  },
+  "radius_m": 500.0,
+  "alpha": 0.95,
+  "cap_scale": 1.0,
+  "boundary_km2": 12.46,
+  "residential_area_pct": 28.0,
+  "forbidden_area_pct": 6.4,
+  "candidates_total": 481,
+  "candidates_feasible": 129,
+  "feasible_by_type": {
+    "amenity=parking": 71,
+    "amenity=post_office": 3,
+    "building=apartments": 0,
+    "shop=convenience": 46,
+    "shop=supermarket": 9
+  },
+  "exclusion_counts": {
+    "disabled;residential": 213,
+    "": 129,
+    "residential": 81,
+    "disabled": 52,
+    "forbidden": 6
+  },
+  "total_daily_demand": 588165.2,
+  "coverage_upper_bound_pct": 92.73,
+  "capacity_upper_bound": 1959000.0,
+  "required_served_demand": 558756.94,
+  "coverage_ok": false,
+  "capacity_ok": true
+}
