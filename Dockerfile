@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# rasterio is kept in requirements-dev.txt for the optional data-fetch job.
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt requirements-dev.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
