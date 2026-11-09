@@ -1,0 +1,400 @@
+%!TeX encoding = UTF-8
+%!TeX program = xelatex
+\documentclass[notheorems, aspectratio=54]{beamer}
+% aspectratio: 1610, 149, 54, 43(default), 32
+
+\usepackage{latexsym}
+\usepackage{amsmath,amssymb}
+\usepackage{mathtools}
+\usepackage{color,xcolor}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{amsthm}
+% font hỗ trợ tiếng Việt (biên dịch bằng xelatex)
+\usepackage{fontspec}
+\setmainfont{DejaVuSerif.ttf}[Path=/usr/share/fonts/truetype/dejavu/]
+\setsansfont{DejaVuSans.ttf}[Path=/usr/share/fonts/truetype/dejavu/]
+\usepackage{animate} % insert gif
+
+\usepackage{lipsum} % To generate test text 
+\usepackage{ulem} % 下划线，波浪线
+
+\usepackage{listings} % display code on slides; don't forget [fragile] option after \begin{frame}
+
+% ----------------------------------------------
+% tikx
+\usepackage{framed}
+\usepackage{tikz}
+\usepackage{pgf}
+\usetikzlibrary{calc,trees,positioning,arrows,chains,shapes.geometric,%
+    decorations.pathreplacing,decorations.pathmorphing,shapes,%
+    matrix,shapes.symbols}
+\pgfmathsetseed{1} % To have predictable results
+% Define a background layer, in which the parchment shape is drawn
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
+
+% define styles for the normal border and the torn border
+\tikzset{
+  normal border/.style={orange!30!black!10, decorate, 
+     decoration={random steps, segment length=2.5cm, amplitude=.7mm}},
+  torn border/.style={orange!30!black!5, decorate, 
+     decoration={random steps, segment length=.5cm, amplitude=1.7mm}}}
+
+% Macro to draw the shape behind the text, when it fits completly in the
+% page
+\def\parchmentframe#1{
+\tikz{
+  \node[inner sep=2em] (A) {#1};  % Draw the text of the node
+  \begin{pgfonlayer}{background}  % Draw the shape behind
+  \fill[normal border] 
+        (A.south east) -- (A.south west) -- 
+        (A.north west) -- (A.north east) -- cycle;
+  \end{pgfonlayer}}}
+
+% Macro to draw the shape, when the text will continue in next page
+\def\parchmentframetop#1{
+\tikz{
+  \node[inner sep=2em] (A) {#1};    % Draw the text of the node
+  \begin{pgfonlayer}{background}    
+  \fill[normal border]              % Draw the ``complete shape'' behind
+        (A.south east) -- (A.south west) -- 
+        (A.north west) -- (A.north east) -- cycle;
+  \fill[torn border]                % Add the torn lower border
+        ($(A.south east)-(0,.2)$) -- ($(A.south west)-(0,.2)$) -- 
+        ($(A.south west)+(0,.2)$) -- ($(A.south east)+(0,.2)$) -- cycle;
+  \end{pgfonlayer}}}
+
+% Macro to draw the shape, when the text continues from previous page
+\def\parchmentframebottom#1{
+\tikz{
+  \node[inner sep=2em] (A) {#1};   % Draw the text of the node
+  \begin{pgfonlayer}{background}   
+  \fill[normal border]             % Draw the ``complete shape'' behind
+        (A.south east) -- (A.south west) -- 
+        (A.north west) -- (A.north east) -- cycle;
+  \fill[torn border]               % Add the torn upper border
+        ($(A.north east)-(0,.2)$) -- ($(A.north west)-(0,.2)$) -- 
+        ($(A.north west)+(0,.2)$) -- ($(A.north east)+(0,.2)$) -- cycle;
+  \end{pgfonlayer}}}
+
+% Macro to draw the shape, when both the text continues from previous page
+% and it will continue in next page
+\def\parchmentframemiddle#1{
+\tikz{
+  \node[inner sep=2em] (A) {#1};   % Draw the text of the node
+  \begin{pgfonlayer}{background}   
+  \fill[normal border]             % Draw the ``complete shape'' behind
+        (A.south east) -- (A.south west) -- 
+        (A.north west) -- (A.north east) -- cycle;
+  \fill[torn border]               % Add the torn lower border
+        ($(A.south east)-(0,.2)$) -- ($(A.south west)-(0,.2)$) -- 
+        ($(A.south west)+(0,.2)$) -- ($(A.south east)+(0,.2)$) -- cycle;
+  \fill[torn border]               % Add the torn upper border
+        ($(A.north east)-(0,.2)$) -- ($(A.north west)-(0,.2)$) -- 
+        ($(A.north west)+(0,.2)$) -- ($(A.north east)+(0,.2)$) -- cycle;
+  \end{pgfonlayer}}}
+
+% Define the environment which puts the frame
+% In this case, the environment also accepts an argument with an optional
+% title (which defaults to ``Example'', which is typeset in a box overlaid
+% on the top border
+\newenvironment{parchment}[1][Example]{%
+  \def\FrameCommand{\parchmentframe}%
+  \def\FirstFrameCommand{\parchmentframetop}%
+  \def\LastFrameCommand{\parchmentframebottom}%
+  \def\MidFrameCommand{\parchmentframemiddle}%
+  \vskip\baselineskip
+  \MakeFramed {\FrameRestore}
+  \noindent\tikz\node[inner sep=1ex, draw=black!20,fill=white, 
+          anchor=west, overlay] at (0em, 2em) {\sffamily#1};\par}%
+{\endMakeFramed}
+
+% ----------------------------------------------
+
+\mode<presentation>{
+    \usetheme{CambridgeUS}
+    % Boadilla CambridgeUS
+    % default Antibes Berlin Copenhagen
+    % Madrid Montpelier Ilmenau Malmoe
+    % Berkeley Singapore Warsaw
+    \usecolortheme{beaver}
+    % beetle, beaver, orchid, whale, dolphin
+    \useoutertheme{infolines}
+    % infolines miniframes shadow sidebar smoothbars smoothtree split tree
+    \useinnertheme{circles}
+    % circles, rectanges, rounded, inmargin
+}
+% 设置 block 颜色
+\setbeamercolor{block title}{bg=red!30,fg=white}
+
+\newcommand{\reditem}[1]{\setbeamercolor{item}{fg=red}\item #1}
+
+% 缩放公式大小
+\newcommand*{\Scale}[2][4]{\scalebox{#1}{\ensuremath{#2}}}
+
+% 解决 font warning
+\renewcommand\textbullet{\ensuremath{\bullet}}
+
+% ---------------------------------------------------------------------
+% flow chart
+\tikzset{
+    >=stealth',
+    punktchain/.style={
+        rectangle, 
+        rounded corners, 
+        % fill=black!10,
+        draw=white, very thick,
+        text width=6em,
+        minimum height=2em, 
+        text centered, 
+        on chain
+    },
+    largepunktchain/.style={
+        rectangle,
+        rounded corners,
+        draw=white, very thick,
+        text width=10em,
+        minimum height=2em,
+        on chain
+    },
+    line/.style={draw, thick, <-},
+    element/.style={
+        tape,
+        top color=white,
+        bottom color=blue!50!black!60!,
+        minimum width=6em,
+        draw=blue!40!black!90, very thick,
+        text width=6em, 
+        minimum height=2em, 
+        text centered, 
+        on chain
+    },
+    every join/.style={->, thick,shorten >=1pt},
+    decoration={brace},
+    tuborg/.style={decorate},
+    tubnode/.style={midway, right=2pt},
+    font={\fontsize{10pt}{12}\selectfont},
+}
+% ---------------------------------------------------------------------
+
+% code setting
+\lstset{
+    language=C++,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{red},
+    breaklines=true,
+    xleftmargin=2em,
+    numbers=left,
+    numberstyle=\color[RGB]{222,155,81},
+    frame=leftline,
+    tabsize=4,
+    breakatwhitespace=false,
+    showspaces=false,               
+    showstringspaces=false,
+    showtabs=false,
+    morekeywords={Str, Num, List},
+}
+
+% ---------------------------------------------------------------------
+
+%% preamble
+\title[Smart locker — Cầu Giấy]{Tối ưu vị trí đặt trạm dịch vụ (smart locker)\\quận Cầu Giấy cũ}
+\author{INT3501E — Service Science}
+\institute[VNU]{Học phần INT3501E}
+
+% -------------------------------------------------------------
+
+\begin{document}
+
+%% title frame
+\begin{frame}
+    \titlepage
+\end{frame}
+
+\section{Bài toán}
+
+\begin{frame}
+    \frametitle{Bài toán}
+    Chọn \textbf{tập vị trí đặt trạm dịch vụ (smart locker) nhỏ nhất} trên địa bàn
+    quận Cầu Giấy cũ (3 phường: Cầu Giấy, Nghĩa Đô, Yên Hòa; $\approx 12{,}46$ km$^2$),
+    thỏa mãn:
+    \begin{itemize}
+        \item Chỉ đặt tại \textbf{điểm ứng viên hợp lệ} lấy từ OpenStreetMap;
+              ứng viên nằm trong khu dân cư (H) hoặc khu vực cấm (C) bị loại.
+        \item Mỗi người dân phát sinh \textbf{2 đơn vị nhu cầu/ngày} — tổng
+              $\approx 588.166$ đơn vị/ngày từ 1.544 điểm cầu (WorldPop, lưới $\sim$100 m).
+        \item Mỗi điểm cầu được gán \textbf{trọn vẹn} cho \textbf{trạm mở gần nhất};
+              điểm cầu được coi là phục vụ nếu khoảng cách Manhattan đến trạm $\le R$.
+        \item Tổng nhu cầu được phục vụ $\ge \alpha \cdot 100\%$ và không trạm nào
+              vượt công suất ngày.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Dữ liệu đầu vào}
+    \begin{itemize}
+        \item \textbf{Ứng viên} (OpenStreetMap): bãi đỗ xe, siêu thị, cửa hàng tiện lợi,
+              bưu điện (ứng viên tòa chung cư đang bị vô hiệu hóa) — 481 điểm.
+        \item \textbf{Nhu cầu} (WorldPop): 1.544 điểm cầu, tổng $\approx 588.166$ đơn vị/ngày.
+        \item \textbf{Polygon}: khu dân cư (H) và khu cấm (C: quân sự, đường sắt,
+              nghĩa trang, mặt nước).
+        \item \textbf{Tham số trạm}: công suất ngày và chi phí đầu tư theo loại trạm.
+        \item Khoảng cách: \textbf{Manhattan (L1)} trên hệ chiếu UTM EPSG:32648.
+    \end{itemize}
+
+    \begin{block}{Lọc ứng viên theo khu dân cư — phương án A (\texttt{landuse=residential})}
+        \textbf{129/481} ứng viên hợp lệ: bãi đỗ xe 71, cửa hàng tiện lợi 46,
+        siêu thị 9, bưu điện 3.
+    \end{block}
+\end{frame}
+
+\section{Mô hình}
+
+\begin{frame}
+    \frametitle{Mô hình MILP — biến và ràng buộc}
+    Biến nhị phân: $x_j = 1$ nếu mở trạm $j$; $y_{ij} = 1$ nếu điểm cầu $i$
+    được gán cho trạm $j$ (chỉ xét các cặp có khoảng cách $d_{ij} \le R$).
+
+    \begin{align*}
+        \sum_{j} y_{ij} &\le 1 && \forall i &\text{(mỗi điểm cầu gán tối đa một trạm)}\\
+        y_{ij} &\le x_j && \forall i,j &\text{(chỉ gán vào trạm đã mở)}\\
+        x_j &\le \sum_{k \in P(i,j)} y_{ik} && \forall i,j &\text{(gán trạm gần nhất — prefix)}\\
+        \sum_{i} q_i\, y_{ij} &\le Q_j\, x_j && \forall j &\text{(công suất ngày)}\\
+        \sum_{i,j} q_i\, y_{ij} &\ge \alpha \sum_{i} q_i && &\text{(độ phủ nhu cầu)}
+    \end{align*}
+
+    với $q_i$: nhu cầu điểm cầu $i$; $Q_j$: công suất trạm $j$;
+    $P(i,j)$: tập ứng viên gần hơn (hoặc bằng) $j$ đối với điểm cầu $i$.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Hàm mục tiêu hai pha}
+    \begin{block}{Pha 1 — tối thiểu số trạm}
+        $$\min \sum_{j} x_j$$
+    \end{block}
+    \begin{block}{Pha 2 — cố định số trạm tối ưu $k^*$, tối thiểu tổng chi phí đầu tư}
+        $$\min \sum_{j} f_j\, x_j \quad \text{s.t.} \quad \sum_{j} x_j = k^*$$
+    \end{block}
+    \begin{itemize}
+        \item Ưu tiên giảm số trạm trước, sau đó chọn tổ hợp trạm rẻ nhất.
+        \item Cài đặt bằng \texttt{scipy.optimize.milp} (solver HiGHS),
+              ma trận ràng buộc thưa.
+        \item Nếu pha 2 không hội tụ trong thời gian cho phép,
+              giữ nghiệm tốt nhất của pha 1.
+    \end{itemize}
+\end{frame}
+
+\section{Pipeline}
+
+\begin{frame}
+    \frametitle{Pipeline xử lý}
+    \begin{enumerate}
+        \item \textbf{fetch\_data}: tải ranh giới, ứng viên OSM, nhu cầu WorldPop.
+        \item \textbf{polygons}: lọc ứng viên theo khu H/C, tính cận trên
+              độ phủ và năng lực.
+        \item \textbf{distances\_l1}: ma trận khoảng cách Manhattan (EPSG:32648).
+        \item \textbf{run.py}: precheck $\to$ MILP hai pha $\to$ kiểm định độc lập
+              $\to$ xuất kết quả.
+    \end{enumerate}
+    \begin{itemize}
+        \item Precheck loại sớm cấu hình bất khả thi mà không cần gọi solver.
+        \item \textbf{evaluate}: gán lại nearest một cách độc lập, kiểm tra
+              coverage / capacity / objective.
+        \item Mỗi lần chạy ghi vào \texttt{results/<run\_id>/} riêng, không ghi đè.
+        \item Kiểm thử: đối chiếu brute-force trên 40 instance ngẫu nhiên,
+              pytest offline, CI trong Docker.
+    \end{itemize}
+\end{frame}
+
+\section{Kết quả}
+
+\begin{frame}
+    \frametitle{Tiền kiểm khả thi (precheck)}
+    Kiểm tra polygon với $R = 500$ m, $\alpha = 0{,}95$:
+    \begin{center}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{ l | c c c }
+        Phương án xác định H & Ứng viên hợp lệ & Cận trên độ phủ & Khả thi? \\
+        \hline
+        A: \texttt{landuse=residential} & 129 / 481 & 92,73\% & không (chỉ đạt khi $R = 800$ m) \\
+        B: khối nhà ở (building footprints) & 184 / 481 & 97,94\% & có
+    \end{tabular}}
+    \end{center}
+    \begin{itemize}
+        \item Phương án A: cận trên độ phủ 92,73\% $<$ 95\% $\Rightarrow$
+              bất khả thi ngay từ precheck khi $R = 500$ m.
+        \item Toàn bộ các lần chạy thực nghiệm dùng phương án A (129 ứng viên).
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Kết quả thực nghiệm trên dữ liệu thật}
+    \begin{center}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{ l | c c c | l }
+        Cấu hình & $R$ (m) & $\alpha$ & cap & Kết quả \\
+        \hline
+        R500/$\alpha$0.95/cap1 & 500 & 0,95 & $\times 1$ & precheck: bất khả thi (UB độ phủ 92,73\%) \\
+        R800/$\alpha$0.95/cap1 & 800 & 0,95 & $\times 1$ & bất khả thi (solver) \\
+        R800/$\alpha$0.90/cap1 & 800 & 0,90 & $\times 1$ & bất khả thi (solver) \\
+        R800/$\alpha$0.95/cap2 & 800 & 0,95 & $\times 2$ & \textbf{khả thi: 19 trạm}
+    \end{tabular}}
+    \end{center}
+    \begin{itemize}
+        \item cap: hệ số nhân công suất ngày của mỗi trạm.
+        \item $R = 500$: precheck chặn sớm; ba cấu hình còn lại do solver
+              chứng minh bất khả thi.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Kết quả tốt nhất: $R = 800$ m, $\alpha = 0{,}95$, cap$\times$2}
+    \begin{block}{Phương án đề xuất}
+        Mở \textbf{19 trạm} — tổng chi phí đầu tư \textbf{14,5 tỷ đồng} —
+        độ phủ \textbf{95,33\%} (560.688 / 588.165 đơn vị nhu cầu/ngày).
+    \end{block}
+    \begin{itemize}
+        \item Kiểm định độc lập: \textbf{PASS} cả 5 mục — id ứng viên hợp lệ,
+              gán nearest, độ phủ, công suất, nhất quán mục tiêu.
+        \item Trạng thái \texttt{feasible\_time\_limit}: pha 1 tìm được nghiệm
+              trong 900 s nhưng chưa kịp chứng minh tối ưu; pha 2 hết thời gian
+              nên dùng nghiệm pha 1.
+        \item Precheck trước khi giải: cận trên độ phủ 99,33\% $\ge$ 95\%,
+              năng lực đủ.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Thảo luận}
+    \begin{itemize}
+        \item $R = 500$ m bất khả thi về độ phủ: 129 ứng viên không phủ nổi
+              nhu cầu dày — cần tăng $R$ lên 800 m hoặc thêm ứng viên
+              (phương án B).
+        \item cap$\times$1 bất khả thi kể cả khi hạ $\alpha = 0{,}90$: ràng buộc
+              \textbf{gán trạm gần nhất} dồn nhu cầu vào một số trạm gây quá tải —
+              nút thắt là công suất, không phải độ phủ.
+        \item cap$\times$2 khả thi: chỉ cần nhân đôi công suất là hấp thụ
+              được điểm nghẽn này.
+        \item Precheck giúp phát hiện sớm bất khả thi (R500) mà không tốn
+              thời gian chạy solver.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Kết luận}
+    \begin{itemize}
+        \item Pipeline hoàn chỉnh từ dữ liệu thật (OSM + WorldPop) đến kết quả
+              được kiểm định độc lập.
+        \item Mô hình MILP hai pha với ràng buộc gán trạm gần nhất; cài đặt
+              được đối chiếu brute-force trên 40 instance ngẫu nhiên.
+        \item Kết quả tốt nhất: 19 trạm, chi phí 14,5 tỷ đồng,
+              phủ 95,33\% nhu cầu.
+        \item Hạn chế: khoảng cách Manhattan (chưa phải mạng đường thực tế),
+              ứng viên chung cư đang tắt, pha 2 chưa hội tụ do giới hạn thời gian.
+        \item Hướng tiếp theo: phương án B (building footprints), khoảng cách đi bộ,
+              tăng thời gian giải cho pha 2.
+    \end{itemize}
+\end{frame}
+
+\end{document}
