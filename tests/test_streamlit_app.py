@@ -23,13 +23,10 @@ def test_app_loads_without_error():
     assert any(b.label == "🚀 Chạy kịch bản" for b in at.button)
 
 
-def test_app_runs_a_scenario():
+def test_app_runs_the_default_scenario():
     at = AppTest.from_file(str(APP), default_timeout=600)
     at.run()
-    # small radius + low alpha keeps the MILP fast
-    at.sidebar.slider[0].set_value(300.0)
-    at.sidebar.slider[1].set_value(0.5)
-    at.sidebar.slider[4].set_value(20)  # time limit
+    # no slider touched: the defaults are what a demo runs first, so they must solve
     at.button[0].click()
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]

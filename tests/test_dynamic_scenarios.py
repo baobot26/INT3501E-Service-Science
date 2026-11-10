@@ -224,3 +224,27 @@ def test_time_limit_no_solution_classified_correctly(tmp_path, monkeypatch):
     assert result["status"] == "time_limit_no_solution"
     assert result["station_count"] == 0
     assert result["total_cost"] == 0.0
+
+
+def test_phase2_without_solution_keeps_phase1_incumbent(tmp_path, monkeypatch):
+    """Phase 2 timing out with no incumbent must fall back to phase 1, not crash."""
+    from unittest.mock import MagicMock
+    from src import model_main
+
+    demand_df, cand_df, params_df, dist, manifest = _setup(tmp_path)
+    problem = build_problem_data(demand_df, cand_df, params_df, 500, 0.95)
+
+    real_milp = model_main.milp
+    calls = []
+
+    def phase2_times_out(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return real_milp(*args, **kwargs)
+        return MagicMock(status=1, x=None, message="Time limit reached")
+
+    monkeypatch.setattr(model_main, "milp", phase2_times_out)
+    result = model_main.solve(problem, dist, time_limit=60.0)
+    assert result["solution_source"] == "phase1_fallback"
+    assert result["status"] == "feasible_time_limit"  # cost was never minimised
+    assert result["station_count"] == 2

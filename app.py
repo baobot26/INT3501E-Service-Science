@@ -51,8 +51,9 @@ except (InputError, FileNotFoundError) as exc:
 st.sidebar.header("⚙️ Tham số kịch bản")
 
 with st.sidebar.form("scenario"):
-    radius = st.slider("Bán kính phục vụ R (m)", 200, 2000, 800, 50)
-    alpha = st.slider("Tỷ lệ phủ tối thiểu α", 0.0, 1.0, 0.95, 0.05)
+    # defaults reach a proven optimum in seconds; R=800, α=0.95 needs 5+ minutes
+    radius = st.slider("Bán kính phục vụ R (m)", 200, 2000, 350, 50)
+    alpha = st.slider("Tỷ lệ phủ tối thiểu α", 0.0, 1.0, 0.6, 0.05)
 
     objective_label = st.selectbox("Mục tiêu", [
         "Ít trạm nhất, rồi rẻ nhất",
@@ -90,7 +91,7 @@ with st.sidebar.form("scenario"):
             }
 
     st.subheader("Solver")
-    time_limit = st.slider("Giới hạn thời gian (giây)", 10, 300, 120, 10)
+    time_limit = st.slider("Giới hạn thời gian (giây)", 10, 300, 20, 10)
     mip_gap = st.slider("MIP gap", 0.0, 0.2, 0.0, 0.01)
 
     submitted = st.form_submit_button("🚀 Chạy kịch bản", type="primary")
