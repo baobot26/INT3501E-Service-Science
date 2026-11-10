@@ -21,6 +21,8 @@ def test_app_loads_without_error():
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]
     assert any(b.label == "🚀 Chạy kịch bản" for b in at.button)
+    # larger radii overrun the solver's time limit and return nothing
+    assert at.sidebar.slider[0].max <= 800
 
 
 def test_app_runs_the_default_scenario():

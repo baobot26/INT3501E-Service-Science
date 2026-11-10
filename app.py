@@ -52,7 +52,9 @@ st.sidebar.header("⚙️ Tham số kịch bản")
 
 with st.sidebar.form("scenario"):
     # defaults reach a proven optimum in seconds; R=800, α=0.95 needs 5+ minutes
-    radius = st.slider("Bán kính phục vụ R (m)", 200, 2000, 350, 50)
+    # shortcut: R capped at 800 m; above it HiGHS overruns the time limit and returns
+    # nothing (20 s limit: R=1000 took 48 s, R=2000 took 339 s). Raise once it solves faster.
+    radius = st.slider("Bán kính phục vụ R (m)", 200, 800, 350, 50)
     alpha = st.slider("Tỷ lệ phủ tối thiểu α", 0.0, 1.0, 0.6, 0.05)
 
     objective_label = st.selectbox("Mục tiêu", [
@@ -133,7 +135,7 @@ with st.spinner("Đang giải MILP..."):
 
 status = result["status"]
 if status == "time_limit_no_solution":
-    st.error("⏱️ Hết thời gian mà không tìm được nghiệm khả thi. Tăng thời gian, giảm α, hoặc tăng R.")
+    st.error("⏱️ Hết thời gian mà không tìm được nghiệm khả thi. Tăng thời gian, giảm α, hoặc giảm R.")
     st.stop()
 if status in ("infeasible", "solver_error"):
     st.error(f"Không tìm được nghiệm: {status}")
