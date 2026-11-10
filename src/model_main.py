@@ -213,11 +213,9 @@ def solve(problem: ProblemData, dist: np.ndarray,
     elapsed = time.perf_counter() - t_start
     remaining = time_limit - elapsed
     if remaining <= 1.0:
-        # budget spent by phase 1: keep its incumbent, do not overrun the limit
-        result.update(phase2_status="skipped_no_budget", phase2_seconds=0.0)
-        x = res1.x
-        status = p1_status
-        solution_source = "phase1_fallback"
+        # budget spent by phase 1: do not overrun the limit
+        p2_status = "skipped_no_budget"
+        result.update(phase2_status=p2_status, phase2_seconds=0.0)
     else:
         count_row = sparse.coo_matrix((np.ones(m), (np.zeros(m), np.arange(m))),
                                       shape=(1, nvar)).tocsr()
@@ -237,19 +235,14 @@ def solve(problem: ProblemData, dist: np.ndarray,
         result.update(phase2_status=p2_status, phase2_seconds=round(p2_seconds, 3),
                       phase2_message=str(res2.message))
 
-        if p2_status not in ("optimal", "feasible_time_limit"):
-            x = res1.x
-            status = p1_status
-            solution_source = "phase1_fallback"
-        else:
-            x = res2.x
-            status = "optimal" if p1_status == "optimal" and p2_status == "optimal" \
-                else "feasible_time_limit"
-            solution_source = "phase2"
-        x = res2.x
-        status = "optimal" if p1_status == "optimal" and p2_status == "optimal" \
-            else "feasible_time_limit"
-        solution_source = "phase2"
+    if p2_status in ("optimal", "feasible_time_limit"):
+        x, solution_source = res2.x, "phase2"
+    else:
+        # phase 2 gave nothing usable: keep the phase 1 incumbent
+        x, solution_source = res1.x, "phase1_fallback"
+    # optimal only when both phases proved it; a fallback's cost is not minimised
+    status = "optimal" if p1_status == "optimal" and p2_status == "optimal" \
+        else "feasible_time_limit"
 
     selected = np.where(x[:m] > 0.5)[0]
     assignment = np.full(len(problem.demand_ids), -1, dtype=int)
