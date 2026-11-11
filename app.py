@@ -65,12 +65,13 @@ with st.sidebar.form("scenario"):
                       if objective_label.startswith("Ít")
                       else "fixed_station_count")
 
-    station_count = None
-    if objective_mode == "fixed_station_count":
-        st.caption("Fixed-p có thể hết thời gian trên dữ liệu thực; dùng chế độ này để thử nghiệm.")
-        station_count = st.number_input("Số trạm p", min_value=0,
-                                        max_value=int(dist.shape[1]),
-                                        value=10, step=1)
+    # always drawn: widgets in a form do not redraw until submit, so an input shown
+    # only in fixed-p mode would never appear. 23 = the minimum for the default scenario.
+    p_input = st.number_input("Số trạm p (chỉ dùng khi cố định p)", min_value=0,
+                              max_value=int(dist.shape[1]), value=23, step=1,
+                              help="Fixed-p có thể hết thời gian trên dữ liệu thực; "
+                                   "dùng chế độ này để thử nghiệm.")
+    station_count = p_input if objective_mode == "fixed_station_count" else None
 
     st.subheader("Hệ số điều chỉnh")
     demand_scale = st.slider("Hệ số nhu cầu", 0.1, 5.0, 1.0, 0.1)
@@ -220,6 +221,7 @@ with col_d1:
         } for j in selected]).to_csv(index=False),
         file_name="selected_stations.csv",
         mime="text/csv",
+        on_click="ignore",  # a rerun would clear the results above
     )
 with col_d2:
     st.download_button(
@@ -243,4 +245,5 @@ with col_d2:
         }, indent=2, ensure_ascii=False),
         file_name="summary.json",
         mime="application/json",
+        on_click="ignore",
     )
