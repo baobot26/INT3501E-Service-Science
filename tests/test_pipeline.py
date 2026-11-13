@@ -1,6 +1,7 @@
 """End-to-end offline pipeline on the tiny fixture in tmp_path."""
 import json
 
+import numpy as np
 import pytest
 
 from src import distances_l1, run
@@ -75,3 +76,12 @@ def test_alpha_out_of_range_rejected(make_inputs):
     data_dir = make_inputs()
     with pytest.raises(SystemExit):
         run.main(["--data-dir", str(data_dir), "--alpha", "1.5"])
+
+def test_stale_distance_matrix_is_an_input_error(make_inputs):
+    # candidates regenerated after the matrix was computed
+    data_dir = make_inputs()
+    distances_l1.compute(data_dir)
+    np.save(data_dir / distances_l1.NPY_NAME, np.zeros((2, 1), dtype=np.float32))
+    code = run.main(["--data-dir", str(data_dir),
+                     "--results-dir", str(data_dir / "results")])
+    assert code == 2

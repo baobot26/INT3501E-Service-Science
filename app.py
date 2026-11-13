@@ -32,8 +32,11 @@ def load_static_data():
     params_df = preprocessing.load_station_parameters(DATA_DIR / "station_parameters.csv")
     try:
         dist, manifest = distances_l1.load(DATA_DIR)
+        preprocessing.validate_distance_manifest(
+            dist, manifest, demand_df["id"].values,
+            cand_df.loc[cand_df["feasible"], "id"].values)
     except InputError:
-        # first run: the matrix has not been generated yet
+        # matrix missing, or stale because the candidates were regenerated since
         dist, manifest = distances_l1.compute_matrix(demand_df, cand_df, params_df)
     return demand_df, cand_df, params_df, dist, manifest
 

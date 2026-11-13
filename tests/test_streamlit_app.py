@@ -2,8 +2,10 @@
 
 Skipped in Docker CI where app.py and data/ are not present.
 """
+import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 streamlit = pytest.importorskip("streamlit")
@@ -48,3 +50,17 @@ def test_app_runs_fixed_p_with_its_default():
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]
     assert [m.value for m in at.metric if m.label == "Số trạm"] == ["23"]
+
+
+def test_app_recovers_from_a_stale_distance_matrix(tmp_path):
+    # polygons.py rewrote the candidates but distances_l1 was not rerun
+    shutil.copy(APP, tmp_path / "app.py")
+    shutil.copytree(APP.parent / "data", tmp_path / "data")
+    np.save(tmp_path / "data" / "dist_l1.npy", np.zeros((1, 1), dtype=np.float32))
+    streamlit.cache_data.clear()  # the loader is cached across tests
+    at = AppTest.from_file(str(tmp_path / "app.py"), default_timeout=600)
+    at.run()
+    at.button[0].click()
+    at.run()
+    streamlit.cache_data.clear()
+    assert not at.exception, [str(e.value) for e in at.exception]
