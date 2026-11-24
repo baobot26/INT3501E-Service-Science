@@ -11,4 +11,5 @@ jobs:
       - uses: actions/checkout@v4
       # offline only: no OSM/Overpass calls, tests use in-memory fixtures
       - run: docker build -t service-science .
-      - run: docker run --rm service-science pytest -q
+      - run: docker run --rm service-science ruff check .
+      - run: docker run --rm service-science pytest -q --cov=src --cov-report=term

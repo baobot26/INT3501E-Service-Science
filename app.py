@@ -32,8 +32,11 @@ def load_static_data():
     params_df = preprocessing.load_station_parameters(DATA_DIR / "station_parameters.csv")
     try:
         dist, manifest = distances_l1.load(DATA_DIR)
+        preprocessing.validate_distance_manifest(
+            dist, manifest, demand_df["id"].values,
+            cand_df.loc[cand_df["feasible"], "id"].values)
     except InputError:
-        # first run: the matrix has not been generated yet
+        # matrix missing, or stale because the candidates were regenerated since
         dist, manifest = distances_l1.compute_matrix(demand_df, cand_df, params_df)
     return demand_df, cand_df, params_df, dist, manifest
 
@@ -51,10 +54,11 @@ except (InputError, FileNotFoundError) as exc:
 st.sidebar.header("⚙️ Tham số kịch bản")
 
 with st.sidebar.form("scenario"):
-    # defaults reach a proven optimum in seconds; R=800, α=0.95 needs 5+ minutes
+    # defaults (mode B: R=300, α=0.6) reach a proven optimum in ~3.5 s;
+    # R=350, α=0.6 takes ~17 s on mode B (too close to the 20 s limit), and R=800, α=0.95 needs 5+ min.
     # shortcut: R capped at 800 m; above it HiGHS overruns the time limit and returns
     # nothing (20 s limit: R=1000 took 48 s, R=2000 took 339 s). Raise once it solves faster.
-    radius = st.slider("Bán kính phục vụ R (m)", 200, 800, 350, 50)
+    radius = st.slider("Bán kính phục vụ R (m)", 200, 800, 300, 50)
     alpha = st.slider("Tỷ lệ phủ tối thiểu α", 0.0, 1.0, 0.6, 0.05)
 
     objective_label = st.selectbox("Mục tiêu", [
@@ -66,11 +70,11 @@ with st.sidebar.form("scenario"):
                       else "fixed_station_count")
 
     # always drawn: widgets in a form do not redraw until submit, so an input shown
-    # only in fixed-p mode would never appear. 23 = the minimum for the default scenario,
+    # only in fixed-p mode would never appear. 31 = the minimum for the default scenario (mode B),
     # clamped because a default above max_value stops the page on small datasets.
     p_input = st.number_input("Số trạm p (chỉ dùng khi cố định p)", min_value=0,
                               max_value=int(dist.shape[1]),
-                              value=min(23, int(dist.shape[1])), step=1,
+                              value=min(31, int(dist.shape[1])), step=1,
                               help="Fixed-p có thể hết thời gian trên dữ liệu thực; "
                                    "dùng chế độ này để thử nghiệm.")
     station_count = p_input if objective_mode == "fixed_station_count" else None
@@ -162,6 +166,7 @@ st.caption(f"Trạng thái: **{status}** | Nguồn: {result.get('solution_source
            f"| capacity_scale = {capacity_scale}")
 
 tab1, tab2, tab3 = st.tabs(["🏪 Trạm được chọn", "📊 Phân bổ nhu cầu", "🗺️ Bản đồ"])
+loads = validation["loads"]
 
 with tab1:
     rows = [{
@@ -170,6 +175,9 @@ with tab1:
         "Lat": problem.cand_lat[j],
         "Lon": problem.cand_lon[j],
         "Sức chứa": problem.capacities[j],
+        "Tải/ngày": loads[j],
+        "Hiệu suất %": round(loads[j] / problem.capacities[j] * 100, 1)
+        if problem.capacities[j] > 0 else 0.0,
         "Chi phí": problem.fixed_costs[j],
     } for j in selected]
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
@@ -178,11 +186,14 @@ with tab2:
     demand_rows = [{
         "ID": int(problem.demand_ids[i]),
         "Nhu cầu/ngày": problem.daily_demand[i],
-        "Trạm": int(problem.candidate_ids[j]) if j >= 0 else "—",
-        "Khoảng cách (m)": round(float(dist[i, j]), 0) if j >= 0 else "—",
+        "Trạm": int(problem.candidate_ids[j]) if j >= 0 else None,
+        "Khoảng cách (m)": round(float(dist[i, j]), 0) if j >= 0 else None,
         "Phục vụ": "✓" if j >= 0 else "✗",
     } for i, j in enumerate(assignment)]
-    st.dataframe(pd.DataFrame(demand_rows), width="stretch", hide_index=True)
+    demand_table = pd.DataFrame(demand_rows)
+    demand_table["Trạm"] = demand_table["Trạm"].astype("Int64")
+    demand_table["Khoảng cách (m)"] = demand_table["Khoảng cách (m)"].astype(float)
+    st.dataframe(demand_table, width="stretch", hide_index=True)
 
 with tab3:
     m = folium.Map(location=[problem.demand_lat.mean(), problem.demand_lon.mean()],
@@ -210,22 +221,47 @@ with tab3:
     st.components.v1.html(m._repr_html_(), height=500, scrolling=True)
 
 st.subheader("📥 Tải kết quả")
-col_d1, col_d2 = st.columns(2)
+station_export_rows = [{
+    "candidate_id": int(problem.candidate_ids[j]),
+    "type": problem.candidate_types[j],
+    "lat": problem.cand_lat[j],
+    "lon": problem.cand_lon[j],
+    "capacity": problem.capacities[j],
+    "load": loads[j],
+    "utilization": loads[j] / problem.capacities[j] if problem.capacities[j] > 0 else 0.0,
+    "fixed_cost": problem.fixed_costs[j],
+} for j in selected]
+station_export_cols = [
+    "candidate_id", "type", "lat", "lon", "capacity", "load", "utilization", "fixed_cost",
+]
+assigned_export_rows = [{
+    "demand_id": int(problem.demand_ids[i]),
+    "lat": problem.demand_lat[i],
+    "lon": problem.demand_lon[i],
+    "daily_demand": problem.daily_demand[i],
+    "station_id": int(problem.candidate_ids[j]) if j >= 0 else "",
+    "distance_m": float(dist[i, j]) if j >= 0 else float("nan"),
+    "served": j >= 0,
+} for i, j in enumerate(assignment)]
+
+col_d1, col_d2, col_d3 = st.columns(3)
 with col_d1:
     st.download_button(
         "selected_stations.csv",
-        data=pd.DataFrame([{
-            "candidate_id": int(problem.candidate_ids[j]),
-            "type": problem.candidate_types[j],
-            "lat": problem.cand_lat[j],
-            "lon": problem.cand_lon[j],
-            "fixed_cost": problem.fixed_costs[j],
-        } for j in selected]).to_csv(index=False),
+        data=pd.DataFrame(station_export_rows, columns=station_export_cols).to_csv(index=False),
         file_name="selected_stations.csv",
         mime="text/csv",
         on_click="ignore",  # a rerun would clear the results above
     )
 with col_d2:
+    st.download_button(
+        "assigned_demand.csv",
+        data=pd.DataFrame(assigned_export_rows).to_csv(index=False),
+        file_name="assigned_demand.csv",
+        mime="text/csv",
+        on_click="ignore",
+    )
+with col_d3:
     st.download_button(
         "summary.json",
         data=json.dumps({

@@ -23,12 +23,17 @@ và **p-median** (heuristic hoán đổi Teitz-Bart).
 
 Kết quả kiểm tra polygon (R = 500 m, α = 0,95):
 
-| Phương án xác định H | Ứng viên hợp lệ | Cận trên độ phủ | Khả thi? |
+| Phương án xác định H | Ứng viên hợp lệ | Cận trên độ phủ | Qua precheck? |
 |---|---|---|---|
 | A: `landuse=residential` | 129 / 481 | 92,73% | ❌ (chỉ đạt khi R = 800 m) |
 | B: khối nhà ở (building footprints) | 184 / 481 | 97,94% | ✅ |
 
-→ Kịch bản chính của MVP: **phương án B, R = 500 m, α = 0,95**.
+Lưu ý: precheck chỉ kiểm cận trên tổng độ phủ và tổng sức chứa; với quy tắc gán
+trọn mỗi điểm cầu cho trạm gần nhất, bài toán MILP ở R = 500 m, α = 0,95 vô nghiệm
+tại `cap_scale = 1,0` (và `1,5`) do quá tải cục bộ tại các cụm dân cư dày, và bắt
+đầu khả thi từ `cap_scale ≈ 2,0`.
+
+→ Kịch bản chính của MVP: **phương án B, R = 500 m, α = 0,95, `cap_scale = 3,0`** (khớp mặc định sức chứa của app).
 
 ## Tech stack
 
@@ -66,7 +71,8 @@ src/
 ├── model_main.py       # Mô hình chính: MILP hai pha (min trạm → min chi phí) + chế độ cố định p
 ├── evaluate.py         # Kiểm định độc lập: gán lại nearest, kiểm coverage/capacity/objective
 ├── export.py           # Ghi kết quả per-run (stations, assignments, validation, precheck)
-└── run.py              # Entry point: một lệnh chạy toàn bộ pipeline
+├── run.py              # Entry point: một lệnh chạy toàn bộ pipeline
+└── sweep.py            # Quét độ nhạy theo lưới R × α, xuất CSV tổng hợp
 
 tests/
 ├── conftest.py         # Fixture chung: tham số trạm, ứng viên nhỏ, polygon H/C
@@ -74,6 +80,7 @@ tests/
 ├── test_models.py      # Đối chiếu brute-force: set/max covering, p-median, evaluate
 ├── test_model_main.py  # Brute-force oracle trên 40 instances ngẫu nhiên + edge cases
 ├── test_pipeline.py    # End-to-end pipeline, precheck, overwrite guard, alpha validation
+├── test_sweep.py       # Kiểm thử quét lưới độ nhạy R × α
 ├── test_config.py      # Validate tham số của SolveConfig
 └── test_dynamic_scenarios.py  # Bật/tắt loại trạm, hệ số, cố định p, CLI ↔ app khớp nhau
 
@@ -87,7 +94,9 @@ data/
 
 results/
 ├── results_walking_all.csv      # kết quả baseline (khoảng cách đi bộ) — không ghi đè
-├── results.csv                  # kết quả 3 mô hình đối chứng
+├── results.csv                  # kết quả 3 mô hình đối chứng (khoảng cách đi bộ)
+├── results_l1.csv               # kết quả 3 mô hình đối chứng trên ma trận L1 + ứng viên feasible
+├── sweep_<ts>.csv               # bảng phân tích độ nhạy R × α
 └── <run_id>/                    # kết quả mô hình chính, mỗi lần chạy một thư mục riêng
     ├── summary.json, config.json, precheck.json
     ├── selected_stations.csv, assigned_demand.csv
@@ -106,9 +115,11 @@ requirements-dev.txt             # pytest, pytest-cov và rasterio cho fetch_dat
 .venv/bin/python src/fetch_data.py                # 1. tải dữ liệu (cần mạng + file WorldPop tif)
 .venv/bin/python src/polygons.py --mode B         # 2. lọc ứng viên theo polygon (A hoặc B)
 .venv/bin/python src/distances.py                 # 3. ma trận khoảng cách đi bộ (baseline)
-.venv/bin/python src/models.py                    # 4. chạy 3 mô hình đối chứng
+.venv/bin/python src/models.py                    # 4a. chạy 3 mô hình đối chứng (đi bộ → results.csv)
+.venv/bin/python src/models.py --metric l1        # 4b. chạy 3 mô hình đối chứng (L1 + feasible → results_l1.csv)
 .venv/bin/python -m src.distances_l1              # 5. ma trận Manhattan (EPSG:32648) cho mô hình chính
-.venv/bin/python -m src.run --radius 500 --alpha 0.95 --cap-scale 1.0   # 6. mô hình chính: MILP hai pha
+.venv/bin/python -m src.run --radius 500 --alpha 0.95 --cap-scale 3.0   # 6. mô hình chính: MILP hai pha
+.venv/bin/python -m src.sweep --radii 300 400 500 600 700 800 --alphas 0.6 0.7 0.8 0.9 0.95 --cap-scale 3.0  # 7. phân tích độ nhạy R × α
 ```
 
 Bước 6 ghi kết quả vào `results/<run_id>/` (mỗi lần chạy một thư mục, không ghi đè).
@@ -162,8 +173,17 @@ file entrypoint `app.py`; Cloud tự cài `requirements.txt` và chạy `streaml
 ```bash
 docker build -t service-science .
 docker run --rm service-science                   # mặc định: chạy pytest
+
+# mở giao diện Streamlit (truy cập http://localhost:8501):
+docker run --rm -p 8501:8501 service-science streamlit run app.py --server.address=0.0.0.0
+
 # chạy pipeline với dữ liệu thật (bind-mount data/ và results/):
+# Bash / Linux / macOS:
 docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" \
+  service-science python src/polygons.py --mode B
+
+# PowerShell (Windows):
+docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
   service-science python src/polygons.py --mode B
 ```
 

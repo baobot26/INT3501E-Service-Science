@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
 COPY requirements.txt requirements-dev.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
-COPY pytest.ini ./
+COPY pytest.ini ruff.toml ./
 COPY src/ src/
 COPY tests/ tests/
 COPY app.py ./
@@ -19,4 +19,5 @@ RUN useradd -m runner && chown -R runner:runner /app
 USER runner
 
 # data/ and results/ are bind-mounted at runtime; tests run offline by default
+EXPOSE 8501
 CMD ["pytest", "-q"]

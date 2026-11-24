@@ -4,7 +4,8 @@ from itertools import combinations
 import numpy as np
 import pytest
 
-from src.models import evaluate, max_covering, p_median, set_covering
+from src import distances_l1
+from src.models import evaluate, load_inputs, max_covering, p_median, set_covering
 
 
 @pytest.fixture
@@ -83,3 +84,20 @@ def test_evaluate_metrics():
     assert out["cov_500"] == 100.0
     assert out["avg_dist_m"] == 175.0  # (1*100 + 3*200) / 4
     assert out["max_dist_m"] == 200.0
+
+
+def test_load_inputs_l1_filters_to_enabled_feasible(make_inputs):
+    from tests.conftest import DEFAULT_CAND
+
+    # mark the disabled building=apartments candidate as polygon-feasible too
+    cand = DEFAULT_CAND.copy()
+    cand.loc[2, "feasible"] = True
+    data_dir = make_inputs(cand=cand)
+    distances_l1.compute(data_dir)
+
+    D, pop, ids = load_inputs("l1", data_dir)
+    # 3 feasible candidates in dist_l1.npy, but only 2 have enabled == 1
+    assert D.shape == (2, 2)
+    assert len(pop) == 2
+    assert ids.tolist() == [0, 1]
+

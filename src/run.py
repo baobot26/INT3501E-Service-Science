@@ -173,6 +173,9 @@ def main(argv=None) -> int:
         problem = build_scenario_problem(
             solve_config, demand_df, cand_df, params_df)
         dist, manifest = distances_l1.load(args.data_dir)
+        # a stale matrix must stop here, before precheck indexes it
+        preprocessing.validate_distance_manifest(
+            dist, manifest, problem.demand_ids, problem.candidate_ids)
     except InputError as exc:
         print(f"input error: {exc}", file=sys.stderr)
         return finish("input_error", 2)

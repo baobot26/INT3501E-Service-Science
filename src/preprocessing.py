@@ -1,7 +1,6 @@
 """Load and validate pipeline inputs; produce a unified ProblemData."""
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
