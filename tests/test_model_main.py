@@ -4,6 +4,7 @@ import itertools
 import numpy as np
 import pytest
 
+from src.evaluate import validate_solution
 from src.model_main import build_assignment_neighbors, solve
 from src.preprocessing import ProblemData
 
@@ -119,3 +120,29 @@ def test_infeasible_when_nothing_in_radius():
     )
     result = solve(problem, l1(dxy, cxy), time_limit=60.0)
     assert result["status"] == "infeasible"
+
+
+def test_validate_rejects_assignment_outside_radius():
+    # demand 0 is within radius of station 0; demand 1 is outside radius (unserved)
+    dxy = np.array([[0.0, 0.0], [2000.0, 0.0]])
+    cxy = np.array([[100.0, 0.0]])
+    problem = ProblemData(
+        demand_ids=np.arange(2), candidate_ids=np.arange(1),
+        demand_xy=dxy, candidate_xy=cxy,
+        daily_demand=np.array([100.0, 100.0]), capacities=np.array([1000.0]),
+        fixed_costs=np.array([10.0]), candidate_types=["t"],
+        demand_lat=dxy[:, 1], demand_lon=dxy[:, 0],
+        cand_lat=cxy[:, 1], cand_lon=cxy[:, 0],
+        radius=500.0, alpha=0.5, cap_scale=1.0,
+    )
+    dist = l1(dxy, cxy)
+    # solver bogusly assigns out-of-radius demand 1 to station 0
+    val = validate_solution(
+        problem, dist,
+        selected_idx=np.array([0]),
+        assignment_idx=np.array([0, 0]),
+        station_count=1,
+        total_cost=10.0,
+    )
+    assert val["checks"]["assignment_nearest"] is False
+    assert val["valid"] is False

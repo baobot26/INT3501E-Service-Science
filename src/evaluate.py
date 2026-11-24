@@ -49,7 +49,7 @@ def validate_solution(problem: ProblemData, dist: np.ndarray,
     # 3. solver assignment matches independent nearest
     assignment_match = True
     for i in range(n):
-        if served[i] and assignment_idx[i] != expected[i]:
+        if assignment_idx[i] != expected[i]:
             assignment_match = False
             errors.append({"check": "assignment_nearest", "demand_id": int(problem.demand_ids[i]),
                            "solver": int(assignment_idx[i]), "expected": int(expected[i])})
@@ -92,7 +92,7 @@ def validate_solution(problem: ProblemData, dist: np.ndarray,
         "valid": all(checks.values()),
         "checks": checks,
         "metrics": {
-            "selected_stations": int(len(selected_idx)),
+            "selected_stations": len(selected_idx),
             "served_demand": served_demand,
             "total_demand": total_demand,
             "coverage_pct": round(coverage * 100, 4),

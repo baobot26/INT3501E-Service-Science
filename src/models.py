@@ -1,13 +1,17 @@
 """Three locker-placement models: set covering, maximal covering, p-median.
 
-Reads data/dist.npy, data/demand.csv, data/candidates.csv.
-Writes results/results.csv, one row per solution.
+Default (`--metric walking`): reads data/dist.npy, data/demand.csv, data/candidates.csv
+and writes results/results.csv, one row per solution.
+With `--metric l1`: reads data/dist_l1.npy, data/dist_l1_manifest.json, data/demand.csv,
+data/candidates_feasible.csv, data/station_parameters.csv and writes results/results_l1.csv.
 
 Set covering and maximal covering are solved exactly with MILP (scipy, HiGHS solver).
 P-median has 1544 x 481 assignment variables, so it uses a swap heuristic (Teitz-Bart)
 run several times from different starting points.
 """
 
+import argparse
+import json
 import time
 from pathlib import Path
 
@@ -116,11 +120,37 @@ def evaluate(D, pop, S):
     return out
 
 
-def main():
+def load_inputs(metric: str = "walking", data_dir: Path = DATA):
+    """Load (D, pop, ids) for either walking-network or L1 feasible candidates."""
+    data_dir = Path(data_dir)
+    pop = pd.read_csv(data_dir / "demand.csv")["population"].to_numpy(float)
+    if metric == "walking":
+        D = np.load(data_dir / "dist.npy").astype(float)
+        ids = pd.read_csv(data_dir / "candidates.csv")["id"].to_numpy()
+        return D, pop, ids
+    if metric == "l1":
+        D = np.load(data_dir / "dist_l1.npy")
+        manifest = json.loads((data_dir / "dist_l1_manifest.json").read_text(encoding="utf-8"))
+        ids = np.array(manifest["candidate_ids"])
+        cand_df = pd.read_csv(data_dir / "candidates_feasible.csv")
+        params_df = pd.read_csv(data_dir / "station_parameters.csv")
+        enabled_types = set(params_df.loc[params_df["enabled"] == 1, "type"])
+        id_to_type = dict(zip(cand_df["id"], cand_df["type"]))
+        mask = np.array(
+            [id_to_type.get(int(cid)) in enabled_types for cid in ids],
+            dtype=bool,
+        )
+        return D[:, mask].astype(float), pop, ids[mask]
+    raise ValueError(f"unsupported metric: {metric}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Run 3 baseline locker-placement models")
+    parser.add_argument("--metric", choices=["walking", "l1"], default="walking")
+    args = parser.parse_args(argv)
+
     OUT.mkdir(exist_ok=True)
-    D = np.load(DATA / "dist.npy").astype(float)
-    pop = pd.read_csv(DATA / "demand.csv")["population"].to_numpy(float)
-    ids = pd.read_csv(DATA / "candidates.csv")["id"].to_numpy()
+    D, pop, ids = load_inputs(args.metric, DATA)
     rng = np.random.default_rng(0)
     rows = []
 
@@ -152,8 +182,10 @@ def main():
         t0 = time.time()
         add("p_median", "", p_median(D, pop, p, rng), t0)
 
-    pd.DataFrame(rows).to_csv(OUT / "results.csv", index=False, encoding="utf-8-sig")
-    print("saved results/results.csv")
+    out_name = "results_l1.csv" if args.metric == "l1" else "results.csv"
+    out_path = OUT / out_name
+    pd.DataFrame(rows).to_csv(out_path, index=False, encoding="utf-8-sig")
+    print(f"saved {out_path}")
 
 
 if __name__ == "__main__":

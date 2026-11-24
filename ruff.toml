@@ -1,0 +1,7 @@
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Keep legacy data-fetch / polygon scripts untouched
+"src/fetch_data.py" = ["F841"]
+"src/polygons.py" = ["F541"]

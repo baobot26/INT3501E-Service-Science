@@ -77,6 +77,7 @@ def test_alpha_out_of_range_rejected(make_inputs):
     with pytest.raises(SystemExit):
         run.main(["--data-dir", str(data_dir), "--alpha", "1.5"])
 
+
 def test_stale_distance_matrix_is_an_input_error(make_inputs):
     # candidates regenerated after the matrix was computed
     data_dir = make_inputs()

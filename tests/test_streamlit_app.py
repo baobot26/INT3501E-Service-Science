@@ -39,7 +39,10 @@ def test_app_runs_the_default_scenario():
     assert any("Số trạm" in m.label for m in at.metric)
     # a download click must not rerun the script: a rerun clears the results
     downloads = at.get("download_button")
-    assert len(downloads) == 2 and all(b.proto.ignore_rerun for b in downloads)
+    assert len(downloads) == 3 and all(b.proto.ignore_rerun for b in downloads)
+    station_df = at.dataframe[0].value
+    assert "Tải/ngày" in station_df.columns and "Hiệu suất %" in station_df.columns
+    assert str(at.dataframe[1].value["Trạm"].dtype) == "Int64"
 
 
 def test_app_runs_fixed_p_with_its_default():
@@ -49,7 +52,7 @@ def test_app_runs_fixed_p_with_its_default():
     at.button[0].click()
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    assert [m.value for m in at.metric if m.label == "Số trạm"] == ["23"]
+    assert [m.value for m in at.metric if m.label == "Số trạm"] == ["31"]
 
 
 def test_app_recovers_from_a_stale_distance_matrix(tmp_path):
@@ -64,3 +67,4 @@ def test_app_recovers_from_a_stale_distance_matrix(tmp_path):
     at.run()
     streamlit.cache_data.clear()
     assert not at.exception, [str(e.value) for e in at.exception]
+

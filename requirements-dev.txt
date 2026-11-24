@@ -1,4 +1,5 @@
-pytest
-pytest-cov
+pytest==9.2.0
+pytest-cov==7.1.0
+ruff==0.17.6
 # Only needed when running src/fetch_data.py to read the WorldPop raster.
-rasterio
+rasterio==1.5.2
