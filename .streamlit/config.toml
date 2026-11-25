@@ -1,6 +1,131 @@
 [server]
 headless = true
 enableXsrfProtection = true
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"
+
+[theme]
+base = "light"
+font = "Be Vietnam Pro, system-ui, -apple-system, sans-serif"
+headingFont = "Be Vietnam Pro, system-ui, -apple-system, sans-serif"
+codeFont = "monospace"
+baseFontSize = 16
+baseFontWeight = 400
+headingFontSizes = ["1.625rem", "1.1875rem", "1rem", "0.9375rem", "0.875rem", "0.8125rem"]
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.375rem"
+metricValueFontWeight = 600
+baseRadius = "0.25rem"
+buttonRadius = "0.25rem"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = true
+paddingTop = "1rem"
+paddingBottom = "2rem"
+
+[theme.light]
+primaryColor = "#165D4A"
+backgroundColor = "#F6F7F4"
+secondaryBackgroundColor = "#ECEFEA"
+textColor = "#1C2421"
+borderColor = "#C9CFC7"
+linkColor = "#165D4A"
+dataframeBorderColor = "#C9CFC7"
+dataframeHeaderBackgroundColor = "#E4E9E2"
+dataframeHeaderTextColor = "#1C2421"
+redColor = "#B4342B"
+redTextColor = "#8B1E18"
+redBackgroundColor = "#FBF0EE"
+yellowColor = "#9A6700"
+yellowTextColor = "#6F4800"
+yellowBackgroundColor = "#FAF4E4"
+orangeColor = "#A84B14"
+orangeTextColor = "#7A340C"
+orangeBackgroundColor = "#FCF2EA"
+blueColor = "#24577A"
+blueTextColor = "#1A4666"
+blueBackgroundColor = "#ECF3F7"
+greenColor = "#165D4A"
+greenTextColor = "#114A3B"
+greenBackgroundColor = "#E9F3EF"
+
+[theme.light.sidebar]
+backgroundColor = "#ECEFEA"
+secondaryBackgroundColor = "#F6F7F4"
+textColor = "#1C2421"
+borderColor = "#C9CFC7"
+showWidgetBorder = true
+baseRadius = "0.25rem"
+buttonRadius = "0.25rem"
+headingFontSizes = ["1.125rem", "0.9375rem", "0.875rem", "0.8125rem", "0.8125rem", "0.75rem"]
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+paddingTop = "1rem"
+paddingBottom = "1.5rem"
+
+[theme.dark]
+primaryColor = "#2E7D66"
+backgroundColor = "#121816"
+secondaryBackgroundColor = "#1A2220"
+textColor = "#E4E9E5"
+borderColor = "#34403B"
+linkColor = "#7CC7AE"
+dataframeBorderColor = "#34403B"
+dataframeHeaderBackgroundColor = "#212B28"
+dataframeHeaderTextColor = "#E4E9E5"
+redColor = "#D96B62"
+redTextColor = "#F6B4AE"
+redBackgroundColor = "#2E1A19"
+yellowColor = "#D6A84E"
+yellowTextColor = "#F2D08B"
+yellowBackgroundColor = "#2C2415"
+orangeColor = "#DC8A4E"
+orangeTextColor = "#F4BE94"
+orangeBackgroundColor = "#2D2016"
+blueColor = "#5FA0CF"
+blueTextColor = "#A6D1EE"
+blueBackgroundColor = "#162531"
+greenColor = "#3C997D"
+greenTextColor = "#8CD5BC"
+greenBackgroundColor = "#152B24"
+
+[theme.dark.sidebar]
+backgroundColor = "#1A2220"
+secondaryBackgroundColor = "#121816"
+textColor = "#E4E9E5"
+borderColor = "#34403B"
+showWidgetBorder = true
+baseRadius = "0.25rem"
+buttonRadius = "0.25rem"
+headingFontSizes = ["1.125rem", "0.9375rem", "0.875rem", "0.8125rem", "0.8125rem", "0.75rem"]
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+paddingTop = "1rem"
+paddingBottom = "1.5rem"
+
+[[theme.fontFaces]]
+family = "Be Vietnam Pro"
+url = "app/static/fonts/BeVietnamPro-Regular.ttf"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Be Vietnam Pro"
+url = "app/static/fonts/BeVietnamPro-Medium.ttf"
+weight = "500"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Be Vietnam Pro"
+url = "app/static/fonts/BeVietnamPro-SemiBold.ttf"
+weight = "600"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Be Vietnam Pro"
+url = "app/static/fonts/BeVietnamPro-Bold.ttf"
+weight = "700"
+style = "normal"

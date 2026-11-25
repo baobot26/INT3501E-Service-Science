@@ -22,7 +22,7 @@ def test_app_loads_without_error():
     at = AppTest.from_file(str(APP), default_timeout=120)
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    assert any(b.label == "🚀 Chạy kịch bản" for b in at.button)
+    assert any(b.label == "Chạy kịch bản" for b in at.button)
     # larger radii overrun the solver's time limit and return nothing
     assert at.sidebar.slider[0].max <= 800
     # the p input must be there before fixed-p is chosen: a form does not redraw
@@ -42,7 +42,11 @@ def test_app_runs_the_default_scenario():
     assert len(downloads) == 3 and all(b.proto.ignore_rerun for b in downloads)
     station_df = at.dataframe[0].value
     assert "Tải/ngày" in station_df.columns and "Hiệu suất %" in station_df.columns
-    assert str(at.dataframe[1].value["Trạm"].dtype) == "Int64"
+    demand_df = at.dataframe[1].value
+    served_stations = demand_df.loc[demand_df["Phục vụ"] == "Được phục vụ", "Trạm"]
+    unserved_stations = demand_df.loc[demand_df["Phục vụ"] == "Chưa phục vụ", "Trạm"]
+    assert len(served_stations) > 0 and all(str(s).isdigit() for s in served_stations)
+    assert len(unserved_stations) > 0 and all(s == "—" for s in unserved_stations)
 
 
 def test_app_runs_fixed_p_with_its_default():
