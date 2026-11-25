@@ -1,16 +1,84 @@
 """Playwright end-to-end tests for the redesigned Streamlit app."""
 from __future__ import annotations
 
+import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from src import models
+from src.make_map import fmt_vi_decimal
+
 if TYPE_CHECKING:
     from playwright.sync_api import FrameLocator, Locator, Page
 
 pytestmark = pytest.mark.e2e
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data"
+SHOTS_006_DIR = REPO_ROOT / ".handoff" / "006-shots"
+SHOTS_007_DIR = REPO_ROOT / ".handoff" / "007-shots"
+
+
+@lru_cache(maxsize=1)
+def _l1_inputs():
+    return models.load_inputs("l1", DATA_DIR)
+
+
+def _shot_006(page: Page, filename: str) -> None:
+    SHOTS_006_DIR.mkdir(parents=True, exist_ok=True)
+    _wait_settled_for_shot(page)
+    page.screenshot(path=str(SHOTS_006_DIR / filename), full_page=False)
+
+
+def _shot_007(page: Page, filename: str) -> None:
+    SHOTS_007_DIR.mkdir(parents=True, exist_ok=True)
+    _wait_settled_for_shot(page)
+    page.screenshot(path=str(SHOTS_007_DIR / filename), full_page=False)
+
+
+def _select_model(page: Page, label_text: str) -> None:
+    sidebar = page.locator('[data-testid="stSidebar"]')
+    radio = sidebar.locator('[data-testid="stRadio"]')
+    expect(radio).to_be_visible(timeout=15_000)
+    radio.locator("label", has_text=label_text).first.click()
+    if label_text.startswith("Mô hình chính"):
+        expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_be_visible(timeout=20_000)
+    elif label_text == "Set covering":
+        expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0, timeout=20_000)
+        expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_have_count(0, timeout=20_000)
+        expect(sidebar.get_by_role("slider", name="Bán kính phục vụ R (m)")).to_be_visible(timeout=20_000)
+    elif label_text == "Max covering":
+        expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0, timeout=20_000)
+        expect(sidebar.get_by_role("slider", name="Bán kính phục vụ R (m)")).to_be_visible(timeout=20_000)
+        expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_be_visible(timeout=20_000)
+    elif label_text == "p-median":
+        expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0, timeout=20_000)
+        expect(sidebar.get_by_role("slider", name="Bán kính đánh giá R (m)")).to_be_visible(timeout=20_000)
+        expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_be_visible(timeout=20_000)
+    expect(page.locator('[data-testid="stStatusWidget"]')).to_have_count(0, timeout=20_000)
+
+
+def _assert_title_block_not_truncated(page: Page) -> None:
+    issues = page.evaluate(
+        """() => {
+            const root = document.querySelector('.st-key-title_block');
+            if (!root) return ['Missing .st-key-title_block'];
+            const bad = [];
+            const els = root.querySelectorAll('[data-testid="stMetricLabel"], [data-testid="stMetricValue"]');
+            if (els.length === 0) return ['No metric elements inside .st-key-title_block'];
+            for (const el of els) {
+                if (el.scrollWidth > el.clientWidth) {
+                    bad.push(`${el.getAttribute('data-testid')} "${el.innerText.trim()}": scrollWidth=${el.scrollWidth} > clientWidth=${el.clientWidth}`);
+                }
+            }
+            return bad;
+        }"""
+    )
+    assert not issues, f"Truncated title block cells: {issues}"
 
 
 def expect(target):
@@ -437,29 +505,34 @@ def _assert_dark_map_styling(page: Page) -> None:
     assert info["lum"] < 0.25, info
 
 
+_CONTRAST_JS_HELPERS = """
+function parseColor(str) {
+    let m = str.match(/rgba?\\((\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?)(?:,\\s*(\\d+(?:\\.\\d+)?))?\\)/);
+    if (m) return [+m[1]/255, +m[2]/255, +m[3]/255, m[4] !== undefined ? +m[4] : 1.0];
+    m = str.match(/color\\(srgb\\s+(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)(?:\\s*\\/\\s*(\\d+(?:\\.\\d+)?))?\\)/);
+    if (m) return [+m[1], +m[2], +m[3], m[4] !== undefined ? +m[4] : 1.0];
+    return null;
+}
+function composite(fg, bg) {
+    const a = fg[3];
+    return [fg[0]*a + bg[0]*(1-a), fg[1]*a + bg[1]*(1-a), fg[2]*a + bg[2]*(1-a)];
+}
+function relLum(rgb) {
+    const lin = c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+}
+function cr(fgRgba, bgRgba) {
+    const eff = composite(fgRgba, bgRgba);
+    const l1 = relLum(eff), l2 = relLum(bgRgba);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+"""
+
+
 def _assert_title_block_contrast(page: Page, min_ratio: float = 4.5) -> None:
     ratios = page.evaluate(
-        """() => {
-            function parseColor(str) {
-                let m = str.match(/rgba?\\((\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?),\\s*(\\d+(?:\\.\\d+)?)(?:,\\s*(\\d+(?:\\.\\d+)?))?\\)/);
-                if (m) return [+m[1]/255, +m[2]/255, +m[3]/255, m[4] !== undefined ? +m[4] : 1.0];
-                m = str.match(/color\\(srgb\\s+(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)(?:\\s*\\/\\s*(\\d+(?:\\.\\d+)?))?\\)/);
-                if (m) return [+m[1], +m[2], +m[3], m[4] !== undefined ? +m[4] : 1.0];
-                return null;
-            }
-            function composite(fg, bg) {
-                const a = fg[3];
-                return [fg[0]*a + bg[0]*(1-a), fg[1]*a + bg[1]*(1-a), fg[2]*a + bg[2]*(1-a)];
-            }
-            function relLum(rgb) {
-                const lin = c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-                return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
-            }
-            function cr(fgRgba, bgRgba) {
-                const eff = composite(fgRgba, bgRgba);
-                const l1 = relLum(eff), l2 = relLum(bgRgba);
-                return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-            }
+        f"""() => {{
+            {_CONTRAST_JS_HELPERS}
             const appBgStr = getComputedStyle(document.querySelector('[data-testid="stApp"]')).backgroundColor;
             const appBg = parseColor(appBgStr);
             const label = document.querySelector('.st-key-title_block [data-testid="stMetricLabel"] p');
@@ -468,17 +541,17 @@ def _assert_title_block_contrast(page: Page, min_ratio: float = 4.5) -> None:
             const valueStr = getComputedStyle(value).color;
             const labelCol = parseColor(labelStr);
             const valueCol = parseColor(valueStr);
-            if (!appBg || !labelCol || !valueCol) {
-                throw new Error(`Unparsed color: bg=${appBgStr}, label=${labelStr}, value=${valueStr}`);
-            }
-            return {
+            if (!appBg || !labelCol || !valueCol) {{
+                throw new Error(`Unparsed color: bg=${{appBgStr}}, label=${{labelStr}}, value=${{valueStr}}`);
+            }}
+            return {{
                 appBg: appBgStr,
                 labelStr,
                 valueStr,
                 labelRatio: cr(labelCol, appBg),
                 valueRatio: cr(valueCol, appBg),
-            };
-        }"""
+            }};
+        }}"""
     )
     assert ratios["labelRatio"] >= min_ratio, ratios
     assert ratios["valueRatio"] >= min_ratio, ratios
@@ -595,4 +668,347 @@ def test_theme_menu_switch_light_dark_light(page: Page, app_url: str, shots_dir:
     ).to_be_visible(timeout=30_000)
     expect(app_el).to_have_css("background-color", "rgb(18, 24, 22)", timeout=10_000)
     _assert_dark_map_styling(page)
+
+
+def test_model_selector_switches_form_parameters(page: Page, app_url: str) -> None:
+    _open_app(page, app_url, width=1440, height=900)
+    sidebar = page.locator('[data-testid="stSidebar"]')
+    radio = sidebar.locator('[data-testid="stRadio"]')
+    form = sidebar.locator('[data-testid="stForm"]')
+    expect(radio).to_be_visible(timeout=15_000)
+    expect(form).to_be_visible(timeout=15_000)
+
+    # Bộ chọn mô hình nằm phía trên form trong cả DOM và bố cục
+    r_box = radio.bounding_box()
+    f_box = form.bounding_box()
+    assert r_box is not None and f_box is not None
+    assert r_box["y"] + r_box["height"] <= f_box["y"] + 2, (r_box, f_box)
+    dom_before = page.evaluate(
+        """() => {
+            const r = document.querySelector('[data-testid="stSidebar"] [data-testid="stRadio"]');
+            const f = document.querySelector('[data-testid="stSidebar"] [data-testid="stForm"]');
+            return !!(r && f && (r.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING));
+        }"""
+    )
+    assert dom_before
+
+    for opt in ("Mô hình chính · MILP hai pha", "Set covering", "Max covering", "p-median"):
+        expect(radio.locator("label", has_text=opt)).to_be_visible()
+
+    _assert_title_block_not_truncated(page)
+    _shot_006(page, "selector-desktop.png")
+
+    # Set covering: không có α, không có p, chỉ có R và loại trạm
+    _select_model(page, "Set covering")
+    expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0)
+    expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_have_count(0)
+    expect(sidebar.get_by_role("slider", name="Bán kính phục vụ R (m)")).to_be_visible()
+
+    # Max covering: có R và p, không có α
+    _select_model(page, "Max covering")
+    expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0)
+    expect(sidebar.get_by_role("slider", name="Bán kính phục vụ R (m)")).to_be_visible()
+    expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_be_visible()
+
+    # p-median: có p và bán kính đánh giá R, không có α
+    _select_model(page, "p-median")
+    expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_have_count(0)
+    expect(sidebar.get_by_role("slider", name="Bán kính đánh giá R (m)")).to_be_visible()
+    expect(sidebar.get_by_role("spinbutton", name="Số trạm p", exact=True)).to_be_visible()
+
+    # Quay lại mô hình chính: có α
+    _select_model(page, "Mô hình chính · MILP hai pha")
+    expect(sidebar.get_by_role("slider", name="Tỷ lệ phủ tối thiểu α")).to_be_visible()
+
+
+def test_set_covering_r500_metrics_map_and_summary_json(page: Page, app_url: str) -> None:
+    D_l1, pop, _ids = _l1_inputs()
+    expected_selected, _coverable, expected_status = models.set_covering(D_l1, 500)
+    expected_res = models.run_baseline("set_covering", D_l1, pop, R=500)
+    assert expected_status == 0
+    expected_n = len(expected_selected)
+
+    _open_app(page, app_url, width=1440, height=900)
+    _select_model(page, "Set covering")
+    _set_slider(page, "Bán kính phục vụ R (m)", 500)
+    _run_button(page).click()
+
+    expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=60_000)
+    expect(_metric_value(page, "Số trạm")).to_have_text(str(expected_n))
+    expect(page.locator('[data-testid="stException"]')).to_have_count(0)
+    cap_text = page.locator('[data-testid="stMain"] [data-testid="stCaptionContainer"]').first.inner_text()
+    assert "Mô hình này không xét sức chứa" in cap_text and "×3" in cap_text, cap_text
+
+    frame = _map_frame(page)
+    expect(frame.locator(".leaflet-container")).to_be_visible(timeout=30_000)
+    expect(frame.locator("path.station-marker")).to_have_count(expected_n, timeout=30_000)
+    expect(frame.locator("path.service-diamond")).to_have_count(expected_n, timeout=30_000)
+
+    dl_btn = page.locator('[data-testid="stDownloadButton"] button', has_text="summary.json")
+    expect(dl_btn).to_be_visible()
+    with page.expect_download(timeout=30_000) as dl_info:
+        dl_btn.click()
+    download = dl_info.value
+    assert download.suggested_filename == "summary.json"
+    dl_path = download.path()
+    assert dl_path is not None
+    summary = json.loads(Path(dl_path).read_text(encoding="utf-8"))
+    assert summary["model"] == "set_covering"
+    assert summary["status"] == expected_res["status_label"]
+    assert summary["station_count"] == expected_n
+    assert summary["coverage_pct"] == expected_res["metrics"]["coverage_pct"]
+    assert summary["config"]["radius"] == 500
+
+    _scroll_main_to_top(page)
+    _shot_006(page, "set-covering-desktop.png")
+    _shot_007(page, "set-covering-desktop.png")
+
+
+def test_max_covering_default_coverage_matches_models(page: Page, app_url: str) -> None:
+    D_l1, pop, _ids = _l1_inputs()
+    expected = models.run_baseline("max_covering", D_l1, pop, R=300, p=31)
+    expected_cov = f"{fmt_vi_decimal(expected['metrics']['coverage_pct'], 1)}%"
+    expected_n = str(len(expected["selected"]))
+
+    _open_app(page, app_url, width=1440, height=900)
+    _select_model(page, "Max covering")
+    _set_slider(page, "Bán kính phục vụ R (m)", 300)
+    p_input = page.locator('[data-testid="stSidebar"]').get_by_role("spinbutton", name="Số trạm p", exact=True)
+    expect(p_input).to_have_value("31")
+    _run_button(page).click()
+
+    expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=60_000)
+    expect(_metric_value(page, "Số trạm")).to_have_text(expected_n)
+    expect(_metric_value(page, "Độ phủ trong R")).to_have_text(expected_cov)
+    expect(_map_frame(page).locator("path.station-marker")).to_have_count(int(expected_n), timeout=30_000)
+
+    _scroll_main_to_top(page)
+    _shot_006(page, "max-covering-desktop.png")
+
+
+def test_p_median_default_avg_dist_and_title_block_and_mobile(page: Page, app_url: str) -> None:
+    D_l1, pop, _ids = _l1_inputs()
+    expected = models.run_baseline("p_median", D_l1, pop, R=300, p=31, seed=0)
+    expected_avg = f"{fmt_vi_decimal(expected['metrics']['avg_dist_m'], 1)} m"
+
+    _open_app(page, app_url, width=1440, height=900)
+    _select_model(page, "p-median")
+    p_input = page.locator('[data-testid="stSidebar"]').get_by_role("spinbutton", name="Số trạm p", exact=True)
+    expect(p_input).to_have_value("31")
+    _set_slider(page, "Bán kính đánh giá R (m)", 300)
+    _run_button(page).click()
+
+    expect(_metric_value(page, "Trạng thái")).to_have_text(
+        "Heuristic, chưa chứng minh tối ưu", timeout=60_000
+    )
+    expect(page.locator(".app-header p")).to_contain_text(
+        "p-median · p = 31 · R = 300 m chỉ dùng để tính độ phủ · không xét sức chứa."
+    )
+    expect(_metric_value(page, "Số trạm")).to_have_text("31")
+    expect(_metric_value(page, "KC trung bình")).to_have_text(expected_avg)
+    expect(_map_frame(page).locator("path.station-marker")).to_have_count(31, timeout=30_000)
+    _assert_title_block_not_truncated(page)
+
+    _scroll_main_to_top(page)
+    _shot_006(page, "p-median-desktop.png")
+    _shot_007(page, "p-median-desktop.png")
+
+    # Kiểm tra định dạng số nguyên trên bảng Trạm được chọn và chụp stations-table.png
+    stations_tab = page.get_by_role("tab", name="Trạm được chọn")
+    stations_tab.scroll_into_view_if_needed()
+    stations_df = page.locator('[data-testid="stDataFrame"]').first
+    expect(stations_df).to_be_visible(timeout=15_000)
+    stations_df.scroll_into_view_if_needed()
+    expect(stations_df.locator("table th").first).to_be_attached(timeout=15_000)
+    st_headers = stations_df.locator("table th").evaluate_all(
+        "els => els.map(e => e.innerText.trim())"
+    )
+    assert "Chi phí (triệu đồng)" in st_headers, st_headers
+    _shot_007(page, "stations-table.png")
+
+    # 1024x768 có thanh bên mở: kiểm tra khung tên không cắt chữ
+    page.set_viewport_size({"width": 1024, "height": 768})
+    _ensure_sidebar_open(page)
+    _scroll_main_to_top(page)
+    _assert_title_block_not_truncated(page)
+    _shot_006(page, "title-block-1024.png")
+
+    # 390x844 mobile trên kết quả baseline: không cuộn ngang
+    page.set_viewport_size({"width": 390, "height": 844})
+    _collapse_sidebar_if_open(page)
+    _scroll_main_to_top(page)
+    expect(_map_frame(page).locator(".leaflet-container")).to_be_visible(timeout=30_000)
+    _assert_boundary_inside_map(page)
+    _assert_no_horizontal_overflow(page)
+    _shot_006(page, "baseline-mobile.png")
+
+
+def test_session_comparison_table_and_model_switch_persistence(page: Page, app_url: str) -> None:
+    D_l1, _pop, _ids = _l1_inputs()
+    expected_sc_300 = len(models.set_covering(D_l1, 300)[0])
+
+    _open_app(page, app_url, width=1440, height=900)
+    _set_slider(page, "Giới hạn thời gian (giây)", 60)
+    _run_button(page).click()
+    expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=90_000)
+    main_count = _metric_value(page, "Số trạm").inner_text().strip()
+    main_cost = _metric_value(page, "Tổng chi phí").inner_text().strip()
+    main_cov = _metric_value(page, "Độ phủ").inner_text().strip()
+
+    _select_model(page, "Set covering")
+    _run_button(page).click()
+    expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=60_000)
+    expect(_metric_value(page, "Số trạm")).to_have_text(str(expected_sc_300))
+
+    comp_heading = page.get_by_role("heading", name="So sánh các mô hình đã chạy")
+    expect(comp_heading).to_be_visible(timeout=15_000)
+    comp_heading.scroll_into_view_if_needed()
+
+    comp_df = page.locator('[data-testid="stDataFrame"]').last
+    expect(comp_df).to_be_visible(timeout=15_000)
+    comp_df.scroll_into_view_if_needed()
+    expect(comp_df.locator("table tbody tr").first).to_be_attached(timeout=15_000)
+    comp_info = comp_df.evaluate(
+        """df => {
+            const headers = [...df.querySelectorAll('table th')].map(e => e.innerText.trim());
+            const modelNames = [...df.querySelectorAll('table tbody tr')].map(
+                tr => (tr.querySelector('td')?.innerText || '').trim()
+            );
+            const scrollers = [...df.querySelectorAll('.dvn-scroller, [class*="scroller"]')];
+            const overflows = scrollers.map(s => ({
+                cls: s.className,
+                scrollWidth: s.scrollWidth,
+                clientWidth: s.clientWidth,
+            })).filter(x => x.clientWidth > 0);
+            return {headers, modelNames, overflows};
+        }"""
+    )
+    assert comp_info["modelNames"] == ["Mô hình chính", "Set covering"], comp_info
+    assert "KC TB · lớn nhất (m)" in comp_info["headers"], comp_info["headers"]
+    assert "Trạm vượt sức chứa (×3)" in comp_info["headers"], comp_info["headers"]
+    assert comp_info["overflows"], comp_info
+    for ov in comp_info["overflows"]:
+        assert ov["scrollWidth"] <= ov["clientWidth"] + 1, (
+            f"Comparison table overflows horizontally at 1440x900: {ov}"
+        )
+
+    _shot_006(page, "comparison-desktop.png")
+    _shot_007(page, "comparison-desktop.png")
+
+    # Quay lại mô hình chính: vẫn giữ kết quả đã giải trước đó
+    _select_model(page, "Mô hình chính · MILP hai pha")
+    expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=20_000)
+    expect(_metric_value(page, "Số trạm")).to_have_text(main_count)
+    expect(_metric_value(page, "Tổng chi phí")).to_have_text(main_cost)
+    expect(_metric_value(page, "Độ phủ")).to_have_text(main_cov)
+
+
+def test_dark_mode_selector_and_comparison_contrast(browser, app_url: str) -> None:
+    D_l1, _pop, _ids = _l1_inputs()
+    expected_sc_300 = len(models.set_covering(D_l1, 300)[0])
+
+    context = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme="dark")
+    try:
+        page = context.new_page()
+        _open_app(page, app_url, width=1440, height=900)
+        _ensure_sidebar_open(page)
+
+        selector_ratios = page.evaluate(
+            f"""() => {{
+                {_CONTRAST_JS_HELPERS}
+                const sidebar = document.querySelector('[data-testid="stSidebar"]');
+                const sbBgStr = getComputedStyle(sidebar).backgroundColor;
+                const sbBg = parseColor(sbBgStr);
+                const radio = sidebar.querySelector('[data-testid="stRadio"]');
+                const labels = [...radio.querySelectorAll('[role="radiogroup"] [data-testid="stMarkdownContainer"] p')];
+                const captions = [...radio.querySelectorAll('[data-testid="stCaptionContainer"] p')];
+                return {{
+                    sbBgStr,
+                    labels: labels.map(el => ({{
+                        text: el.innerText.trim(),
+                        color: getComputedStyle(el).color,
+                        ratio: cr(parseColor(getComputedStyle(el).color), sbBg),
+                    }})),
+                    captions: captions.map(el => ({{
+                        text: el.innerText.trim(),
+                        color: getComputedStyle(el).color,
+                        ratio: cr(parseColor(getComputedStyle(el).color), sbBg),
+                    }})),
+                }};
+            }}"""
+        )
+        assert len(selector_ratios["labels"]) == 4, selector_ratios
+        assert len(selector_ratios["captions"]) == 4, selector_ratios
+        for item in selector_ratios["labels"] + selector_ratios["captions"]:
+            assert item["ratio"] >= 4.5, f"Low contrast in dark selector: {item} on {selector_ratios['sbBgStr']}"
+
+        _shot_006(page, "selector-dark.png")
+
+        # Chạy Set covering rồi đo tương phản bảng so sánh trong dark mode
+        _select_model(page, "Set covering")
+        _run_button(page).click()
+        expect(_metric_value(page, "Trạng thái")).to_have_text("Tối ưu", timeout=60_000)
+        expect(_metric_value(page, "Số trạm")).to_have_text(str(expected_sc_300))
+
+        comp_heading = page.get_by_role("heading", name="So sánh các mô hình đã chạy")
+        comp_heading.scroll_into_view_if_needed()
+        comp_df = page.locator('[data-testid="stDataFrame"]').last
+        expect(comp_df).to_be_visible(timeout=15_000)
+        comp_df.scroll_into_view_if_needed()
+        expect(comp_df.locator("table th").first).to_be_attached(timeout=15_000)
+
+        table_ratios = page.evaluate(
+            f"""() => {{
+                {_CONTRAST_JS_HELPERS}
+                function effectiveBg(el, fallback) {{
+                    let cur = el;
+                    while (cur) {{
+                        const c = parseColor(getComputedStyle(cur).backgroundColor);
+                        if (c && c[3] > 0.01) return c[3] >= 0.99 ? c : [...composite(c, fallback), 1.0];
+                        cur = cur.parentElement;
+                    }}
+                    return fallback;
+                }}
+                const appBgStr = getComputedStyle(document.querySelector('[data-testid="stApp"]')).backgroundColor;
+                const appBg = parseColor(appBgStr);
+                const dfs = [...document.querySelectorAll('[data-testid="stDataFrame"]')];
+                const df = dfs[dfs.length - 1];
+                const headers = [...df.querySelectorAll('table th')].map(el => ({{
+                    text: el.innerText.trim(),
+                    color: getComputedStyle(el).color,
+                    ratioVsApp: cr(parseColor(getComputedStyle(el).color), appBg),
+                    ratioVsBg: cr(parseColor(getComputedStyle(el).color), effectiveBg(el, appBg)),
+                }}));
+                const cells = [...df.querySelectorAll('table td')].map(el => ({{
+                    text: el.innerText.trim(),
+                    color: getComputedStyle(el).color,
+                    ratioVsApp: cr(parseColor(getComputedStyle(el).color), appBg),
+                    ratioVsBg: cr(parseColor(getComputedStyle(el).color), effectiveBg(el, appBg)),
+                }}));
+                const canvas = df.querySelector('canvas');
+                let maxCanvasFgRatio = 0;
+                if (canvas) {{
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {{
+                        const data = ctx.getImageData(0, 0, Math.min(canvas.width, 400), Math.min(canvas.height, 120)).data;
+                        for (let i = 0; i < data.length; i += 4) {{
+                            if (data[i+3] < 220) continue;
+                            const r = cr([data[i]/255, data[i+1]/255, data[i+2]/255, 1.0], appBg);
+                            if (r > maxCanvasFgRatio) maxCanvasFgRatio = r;
+                        }}
+                    }}
+                }}
+                return {{appBgStr, headers, cells, maxCanvasFgRatio}};
+            }}"""
+        )
+        assert len(table_ratios["headers"]) >= 9, table_ratios
+        assert len(table_ratios["cells"]) >= 9, table_ratios
+        for item in table_ratios["headers"] + table_ratios["cells"]:
+            assert item["ratioVsApp"] >= 4.5 and item["ratioVsBg"] >= 4.5, (
+                f"Low contrast in dark comparison table: {item} on {table_ratios['appBgStr']}"
+            )
+        assert table_ratios["maxCanvasFgRatio"] >= 4.5, table_ratios
+    finally:
+        context.close()
+
 
