@@ -7,8 +7,14 @@
 \usepackage{amsmath,amssymb}
 \usepackage{array}
 \usepackage{fontspec} % tiếng Việt, biên dịch bằng xelatex
-\setsansfont{DejaVu Sans}
-\setmonofont{DejaVu Sans Mono}
+% Latin Modern như template (lmodern), có đủ dấu tiếng Việt; cỡ nhỏ dùng bản quang học 8 pt cho dễ đọc
+\setsansfont{lmsans10-regular.otf}[BoldFont=lmsans10-bold.otf, ItalicFont=lmsans10-oblique.otf,
+  BoldItalicFont=lmsans10-boldoblique.otf,
+  SizeFeatures={{Size=-8.5, Font=lmsans8-regular.otf}, {Size=8.5-11.5, Font=lmsans10-regular.otf},
+                {Size=11.5-, Font=lmsans12-regular.otf}}]
+\setmonofont{lmmono10-regular.otf}
+\usepackage{newunicodechar}
+\newunicodechar{α}{\ensuremath{\alpha}} % Latin Modern Sans không có chữ Hy Lạp
 \usepackage{tikz}
 \usetikzlibrary{positioning, arrows.meta}
 \usepackage{pgfplots}
@@ -19,7 +25,7 @@
 
 % ---------------------------------------------------------------- giao diện
 % Template "Blood Red" của Urinx/LaTeX-PPT-Template (Apache-2.0): CambridgeUS + beaver
-% + infolines + circles. Giữ khổ 16:9 và phông DejaVu (đủ dấu tiếng Việt).
+% + infolines + circles. Giữ khổ 16:9 thay vì 5:4 vì bố cục các slide đo theo mm.
 \usetheme{CambridgeUS}
 \usecolortheme{beaver}
 \useoutertheme{infolines}
@@ -59,13 +65,16 @@
 \newcommand{\code}[1]{{\ttfamily #1}}
 
 % ---------------------------------------------------------------- khung slide
-\setbeamertemplate{navigation symbols}{}
 \setbeamersize{text margin left=10mm, text margin right=10mm}
 \setbeamercolor{background canvas}{bg=paper}
 \setbeamercolor{normal text}{fg=ink}
 \setbeamercolor{structure}{fg=brand}
 \setbeamercolor{frametitle}{fg=darkred, bg=gray!10!white}
-\setbeamerfont{frametitle}{size=\fontsize{13.5}{16}\selectfont}
+\setbeamercolor{framesubtitle}{fg=darkred!75!black}
+\setbeamerfont{frametitle}{size=\fontsize{14.5}{17}\selectfont}
+\setbeamerfont{framesubtitle}{size=\fontsize{8.5}{10}\selectfont}
+% block như template: thanh tiêu đề red!30 (chữ đỏ thẫm thay vì trắng cho dễ đọc), thân trắng, bóng đổ
+\setbeamercolor{block title}{bg=red!30, fg=brand}
 \setbeamerfont{headline}{size=\fontsize{5.8}{7}\selectfont}
 \setbeamerfont{footline}{size=\fontsize{5.8}{7}\selectfont}
 \setbeamerfont{title}{size=\fontsize{21}{25}\selectfont}
@@ -75,25 +84,21 @@
 \setbeamercolor{itemize/enumerate body}{fg=soft} % beamer tự đặt lại màu chữ trong danh sách
 \setlength{\leftmargini}{3.5mm}
 
-% thanh trên kiểu infolines: tên phần (\section) bên trái, nhãn slide (\framesubtitle) bên phải
-\setbeamertemplate{headline}{%
-  \leavevmode\hbox{%
-  \begin{beamercolorbox}[wd=.5\paperwidth, ht=2.65ex, dp=1.5ex, right]{section in head/foot}%
-    \usebeamerfont{headline}\insertsectionhead\hspace*{2ex}%
-  \end{beamercolorbox}%
-  \begin{beamercolorbox}[wd=.5\paperwidth, ht=2.65ex, dp=1.5ex, left]{subsection in head/foot}%
-    \usebeamerfont{headline}\hspace*{2ex}\ifdefined\insertframesubtitle\insertframesubtitle\fi
-  \end{beamercolorbox}}\vskip0pt}
+% thanh trên giữ nguyên của infolines: tên phần (\section) bên trái, subsection (trống) bên phải
 
-% tiêu đề trên dải xám tràn lề, chữ đỏ như template
+% tiêu đề trên dải xám tràn lề, chữ đỏ như template; phụ đề (\framesubtitle) ngay dưới tiêu đề
+\makeatletter
 \setbeamertemplate{frametitle}{%
   \nointerlineskip
   \begin{beamercolorbox}[wd=\paperwidth, leftskip=10mm, rightskip=10mm]{frametitle}%
-    \vskip2.4mm%
-    {\usebeamerfont{frametitle}\insertframetitle\par}%
     \vskip2.2mm%
+    {\usebeamerfont{frametitle}\insertframetitle\par}%
+    \ifx\insertframesubtitle\@empty\else
+      \vskip0.4mm{\usebeamerfont{framesubtitle}\usebeamercolor[fg]{framesubtitle}\insertframesubtitle\par}\fi
+    \vskip2.0mm%
   \end{beamercolorbox}%
   \vskip2.6mm}
+\makeatother
 
 % chân trang: ghi chú nguồn (đặt bằng \sfoot trước mỗi frame) trên thanh infolines ba ô
 \newcommand{\slidefoot}{}
@@ -115,9 +120,12 @@
   \vskip1.6mm\infobar\vskip0pt}
 
 % ---------------------------------------------------------------- thành phần
-\tcbset{cardbase/.style={enhanced, colback=card, colframe=hair, boxrule=0.4pt, arc=1.6mm,
+\tcbset{cardbase/.style={enhanced, colback=paper, colframe=paper, boxrule=0pt, arc=1.6mm,
   boxsep=0pt, left=3mm, right=3mm, top=2.4mm, bottom=2.4mm, halign=flush left,
-  fontupper=\Fbody\color{soft}, before skip=0pt, after skip=0pt}}
+  fontupper=\Fbody\color{soft}, before skip=0pt, after skip=0pt,
+  drop fuzzy shadow=black!45,
+  colbacktitle=red!30, coltitle=brand, fonttitle=\fontsize{8.5}{10.5}\selectfont,
+  toptitle=1mm, bottomtitle=1mm, lefttitle=3mm, titlerule=0pt}}
 \newtcolorbox{card}[1][]{cardbase, #1}
 \tcbset{raster column skip=3mm, raster row skip=3mm, raster equal height=rows,
   raster before skip=0pt, raster after skip=0pt}
@@ -183,18 +191,18 @@
 \section{Bài toán và dữ liệu}
 \sfoot{Khu vực: ba phường Cầu Giấy, Nghĩa Đô, Yên Hòa (khoảng 12,46 km²)}
 \begin{frame}{Chọn ít trạm nhất mà vẫn phục vụ đủ dân}
-  \framesubtitle{BÀI TOÁN}
+  \framesubtitle{Bài toán}
   \begin{tcbraster}[raster columns=2]
-    \begin{card}\cardhead{Chỉ đặt ở điểm hợp lệ}
+    \begin{card}[title={Chỉ đặt ở điểm hợp lệ}]
       Điểm ứng viên lấy từ OpenStreetMap, không nằm trong khu dân cư (H) hay khu cấm (C).
     \end{card}
-    \begin{card}\cardhead{Mỗi điểm dân về trạm mở gần nhất}
+    \begin{card}[title={Mỗi điểm dân về trạm mở gần nhất}]
       Gán trọn vẹn, và chỉ tính là được phục vụ nếu khoảng cách Manhattan không quá R.
     \end{card}
-    \begin{card}\cardhead{Phủ ít nhất α tổng nhu cầu}
+    \begin{card}[title={Phủ ít nhất α tổng nhu cầu}]
       Ví dụ α = 0,95 nghĩa là phục vụ được ít nhất 95\% nhu cầu mỗi ngày.
     \end{card}
-    \begin{card}\cardhead{Không trạm nào quá tải}
+    \begin{card}[title={Không trạm nào quá tải}]
       Tổng nhu cầu gán vào một trạm không vượt công suất ngày của loại trạm đó.
     \end{card}
   \end{tcbraster}
@@ -214,7 +222,7 @@
 % 3. Dữ liệu
 \sfoot{Sức chứa và chi phí là tham số giả định, chỉnh được trong \code{station\_parameters.csv}}
 \begin{frame}{Dữ liệu thật từ WorldPop và OpenStreetMap}
-  \framesubtitle{DỮ LIỆU ĐẦU VÀO}
+  \framesubtitle{Dữ liệu đầu vào}
   \begin{tcbraster}[raster columns=4]
     \begin{card}[left=2.6mm, right=2.6mm]
       {\fontsize{15}{17}\selectfont\bfseries\color{accent}1.544\par}\vspace{0.6mm}
@@ -248,20 +256,18 @@
 % 4. Lọc polygon
 \sfoot{Cận trên độ phủ: phần nhu cầu có ít nhất một ứng viên hợp lệ trong bán kính R}
 \begin{frame}{Cách xác định khu dân cư quyết định độ phủ}
-  \framesubtitle{LỌC ỨNG VIÊN THEO POLYGON}
+  \framesubtitle{Lọc ứng viên theo polygon}
   {\Flead\color{soft}Loại ứng viên nằm trong \textbf{H} (khu dân cư) hoặc \textbf{C} (quân sự,
     đường sắt, nghĩa trang, mặt nước). Có hai cách xác định H:\par}
   \vspace{3.5mm}
   \begin{tcbraster}[raster columns=2, raster column skip=4mm]
-    \begin{card}[top=4.2mm, bottom=4.2mm, left=4.5mm, right=4.5mm]
-      \cardhead{Phương án A: landuse=residential}\vspace{2mm}
+    \begin{card}[top=4.2mm, bottom=4.2mm, left=4.5mm, right=4.5mm, title={Phương án A: landuse=residential}]
       {\fontsize{19}{21}\selectfont\bfseries\color{ink}129 / 481}\hspace{3mm}{\Fsmall ứng viên hợp lệ}\par
       \vspace{3mm}
       {\Flead Cận trên độ phủ ở R = 500 m: \textbf{92,73\%}\par}\vspace{2mm}
       {\Fsmall\bfseries\color{accent}Không đạt α = 0,95, phải tăng R lên 800 m\par}
     \end{card}
-    \begin{card}[top=4.2mm, bottom=4.2mm, left=4.5mm, right=4.5mm, colframe=good, boxrule=0.8pt]
-      \cardhead{Phương án B: khối nhà ở (building)}\vspace{2mm}
+    \begin{card}[top=4.2mm, bottom=4.2mm, left=4.5mm, right=4.5mm, colframe=good, boxrule=0.8pt, title={Phương án B: khối nhà ở (building)}]
       {\fontsize{19}{21}\selectfont\bfseries\color{good}184 / 481}\hspace{3mm}{\Fsmall ứng viên hợp lệ}\par
       \vspace{3mm}
       {\Flead Cận trên độ phủ ở R = 500 m: \textbf{97,94\%}\par}\vspace{2mm}
@@ -278,27 +284,24 @@
 \section{Mô hình đối chứng}
 \sfoot{Lần chạy đi bộ, 481 ứng viên · Nguồn: \code{results\_walking\_all.csv}, 69 lời giải}
 \begin{frame}{Set covering, maximal covering, p-median}
-  \framesubtitle{BA MÔ HÌNH ĐỐI CHỨNG}
+  \framesubtitle{Ba mô hình đối chứng}
   {\Flead\color{soft}Lần chạy gốc dùng khoảng cách \textbf{đi bộ} trên mạng đường OSM, toàn bộ 481 ứng viên,
     trọng số là dân số. Chưa có công suất và chưa lọc polygon.\par}
   \vspace{2.0mm}
   \begin{tcbraster}[raster columns=3]
-    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm]\begin{minipage}[t][27mm][t]{\linewidth}\raggedright
-      {\fontsize{9.5}{11.5}\selectfont\bfseries\color{ink}Set covering\par}\vspace{1.0mm}
+    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm, title={Set covering}]\begin{minipage}[t][23mm][t]{\linewidth}\raggedright
       Ít trạm nhất để mọi điểm dân phủ được đều nằm trong bán kính R. Giải đúng bằng MILP.
       \vfill
       {\fontsize{15}{17}\selectfont\bfseries\color{accent}27 trạm\par}\vspace{0.5mm}
       {\Fsmall ở R = 800 m, phủ 99,92\% dân}
     \end{minipage}\end{card}
-    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm]\begin{minipage}[t][27mm][t]{\linewidth}\raggedright
-      {\fontsize{9.5}{11.5}\selectfont\bfseries\color{ink}Maximal covering\par}\vspace{1.0mm}
+    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm, title={Maximal covering}]\begin{minipage}[t][23mm][t]{\linewidth}\raggedright
       Có tối đa p trạm, chọn sao cho phủ được nhiều dân nhất trong bán kính R. Giải đúng bằng MILP.
       \vfill
       {\fontsize{15}{17}\selectfont\bfseries\color{accent}94,79\%\par}\vspace{0.5mm}
       {\fontsize{6}{8}\selectfont dân được phủ với 15 trạm, R = 800 m}
     \end{minipage}\end{card}
-    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm]\begin{minipage}[t][27mm][t]{\linewidth}\raggedright
-      {\fontsize{9.5}{11.5}\selectfont\bfseries\color{ink}p-median\par}\vspace{1.0mm}
+    \begin{card}[top=2.4mm, bottom=2.4mm, left=2.4mm, right=2.4mm, title={p-median}]\begin{minipage}[t][23mm][t]{\linewidth}\raggedright
       Có p trạm, chọn sao cho tổng quãng đường đi bộ ngắn nhất. Heuristic hoán đổi Teitz–Bart,
       11 điểm xuất phát.
       \vfill
@@ -322,7 +325,7 @@
 % Số liệu: results/results_walking_all.csv, model=max_covering, cột cov_<R> của chính R đó.
 \sfoot{Maximal covering, khoảng cách đi bộ, p = 3 đến 15}
 \begin{frame}{Bán kính quyết định độ phủ nhiều hơn số trạm}
-  \framesubtitle{ĐỘ NHẠY THEO SỐ TRẠM}
+  \framesubtitle{Độ nhạy theo số trạm}
   \vspace{-3mm}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{90mm}
@@ -383,7 +386,7 @@
 % Số liệu: results/results_walking_all.csv, model=set_covering (cột p) và p_median (cột avg_dist_m).
 \sfoot{Khoảng cách đi bộ trên mạng đường OSM, 481 ứng viên}
 \begin{frame}{Giảm R từ 800 xuống 500 m cần gấp ba số trạm}
-  \framesubtitle{ĐỘ NHẠY THEO BÁN KÍNH}
+  \framesubtitle{Độ nhạy theo bán kính}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{68mm}
       \begin{card}[left=2mm, right=2mm, top=2.5mm, bottom=1.5mm]\centering
@@ -435,7 +438,7 @@
 \sfoot{$P(i,j)$: các ứng viên gần $i$ hơn hoặc bằng $j$ · $q_i$: nhu cầu điểm $i$ ·
   $Q_j$: công suất trạm $j$}
 \begin{frame}{MILP với hai biến nhị phân và năm ràng buộc}
-  \framesubtitle{MÔ HÌNH CHÍNH}
+  \framesubtitle{Mô hình chính}
   {\Flead\color{soft}$x_j = 1$ nếu mở trạm $j$.\; $y_{ij} = 1$ nếu điểm cầu $i$ được gán cho
     trạm $j$, chỉ xét các cặp có khoảng cách không quá R.\par}
   \vspace{3mm}
@@ -459,7 +462,7 @@
 % 9. Ràng buộc gán trạm mở gần nhất
 \sfoot{Hai trạm cách bằng nhau thì chọn trạm có id nhỏ hơn}
 \begin{frame}{Mô hình không được “bỏ bớt” nhu cầu để tránh quá tải}
-  \framesubtitle{RÀNG BUỘC GÁN TRẠM MỞ GẦN NHẤT}
+  \framesubtitle{Ràng buộc gán trạm mở gần nhất}
   \begin{card}[top=3mm, bottom=3mm]
     \begin{tikzpicture}[x=1mm, y=1mm,
       sb/.style={rounded corners=1.4mm, inner sep=2.2mm, anchor=west, line width=0.6pt}]
@@ -494,7 +497,7 @@
 % 10. Pipeline
 \sfoot{Mỗi lần chạy ghi vào một thư mục riêng, không ghi đè kết quả cũ}
 \begin{frame}{Từ dữ liệu thô tới bản đồ kết quả}
-  \framesubtitle{PIPELINE XỬ LÝ}
+  \framesubtitle{Pipeline xử lý}
   \vspace{-1.2mm}
   \begin{tikzpicture}[x=1mm, y=1mm,
     pb/.style={draw=hair, fill=card, rounded corners=1.4mm, inner sep=1.8mm, anchor=north west,
@@ -538,7 +541,7 @@
 % 11. Tiền kiểm và kiểm định
 \sfoot{101 test offline + 15 test Playwright e2e · MILP đối chiếu vét cạn trên 40 bài · CI 2 job (\code{docker-test}, \code{e2e})}
 \begin{frame}{Kiểm tra trước khi giải, kiểm lại sau khi giải}
-  \framesubtitle{TIỀN KIỂM VÀ KIỂM ĐỊNH}
+  \framesubtitle{Tiền kiểm và kiểm định}
   \begin{tcbraster}[raster columns=2, raster column skip=4mm]
     \begin{card}[top=3.2mm, bottom=3.2mm, left=4mm, right=4mm, fontupper=\Flead\color{soft}]
       {\fontsize{9.5}{11.5}\selectfont\bfseries\color{ink}Tiền kiểm (precheck)\par}\vspace{1.6mm}
@@ -572,7 +575,7 @@
 % 12. Công cụ GIS
 \sfoot{Ảnh: kịch bản mặc định (R = 300 m, α = 0,60, sức chứa ×3) · Giao diện dùng chung hàm giải với CLI}
 \begin{frame}{Chỉnh tham số, bấm chạy, so sánh trên bản đồ L1}
-  \framesubtitle{CÔNG CỤ GIS}
+  \framesubtitle{Công cụ GIS}
   \vspace{-2.5mm}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{67mm}
@@ -613,29 +616,27 @@
 % =====================================================================
 % 13. Phát hiện chính
 \section{Kết quả}
-{\setbeamercolor{background canvas}{bg=accent}\setbeamertemplate{footline}{}\setbeamertemplate{headline}{}
-\begin{frame}
-  \color{paper}
-  \vspace*{9mm}
-  {\Feyebrow\color{washwarn}KẾT QUẢ TRÊN DỮ LIỆU THẬT\par}
-  \vfill
-  \begin{minipage}{128mm}\raggedright\fontsize{24}{29}\selectfont\bfseries
-    Nút thắt là công suất cục bộ, không phải độ phủ.\end{minipage}
-  \vfill
-  \begin{minipage}{120mm}\raggedright\fontsize{9.5}{13.5}\selectfont
-    Ở R = 800 m, cận trên độ phủ là 99,33\% và tổng công suất gấp 3,5 lần nhu cầu.
-    Vậy mà với sức chứa gốc, bài toán vẫn vô nghiệm.\end{minipage}
-  \vspace*{3mm}
+\sfoot{Số liệu 99,33\% và 3,5 lần là của phương án A, R = 800 m}
+\begin{frame}{Nút thắt là công suất cục bộ, không phải độ phủ}
+  \framesubtitle{Phát hiện chính trên dữ liệu thật}
+  \vspace{8mm}
+  \begin{card}[title={Phát hiện chính}, left=5mm, right=5mm, top=5mm, bottom=5mm,
+      fonttitle=\fontsize{10}{12}\selectfont, fontupper=\fontsize{12}{17}\selectfont\color{ink}]
+    Ở R = 800 m, cận trên độ phủ là \textbf{99,33\%} và tổng công suất gấp \textbf{3,5 lần} nhu cầu.
+    Vậy mà với sức chứa gốc, bài toán vẫn \textbf{vô nghiệm}.
+  \end{card}
+  \vspace{5mm}
+  {\Flead\color{soft}Mỗi điểm dân phải về trạm mở gần nhất, nên vài trạm ở khu đông dân bị dồn tải vượt sức chứa.\par}
   \note{Đây là phát hiện chính của nhóm. Nhìn tổng thì đủ cả độ phủ lẫn công suất, nhưng vì ai
     cũng về trạm gần nhất nên một số trạm ở khu đông dân bị dồn tải vượt sức chứa. Số liệu 99,33\%
     và 3,5 lần là của phương án A.}
-\end{frame}}
+\end{frame}
 
 % =====================================================================
 % 14. Kết quả phương án A
 \sfoot{Pha 1 chạy 911 giây, chưa chứng minh tối ưu · Cận dưới solver báo: ít nhất 16 trạm}
 \begin{frame}{Phải nhân đôi sức chứa mới có nghiệm: 19 trạm}
-  \framesubtitle{PHƯƠNG ÁN A · 129 ỨNG VIÊN}
+  \framesubtitle{Phương án A · 129 ứng viên}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{74mm}
       \begin{dtab}{R{9.5mm}R{8mm}R{13mm}L{30.7mm}}
@@ -667,7 +668,7 @@
 % 15. Kết quả phương án B
 \sfoot{Cả ba lần đều hết thời gian ở pha 1, chưa chứng minh tối ưu · Pha 1 dùng hết ngân sách nên pha 2 không chạy}
 \begin{frame}{Cho solver thêm thời gian: từ 115 xuống 14 trạm}
-  \framesubtitle{PHƯƠNG ÁN B · 184 ỨNG VIÊN}
+  \framesubtitle{Phương án B · 184 ứng viên}
   \vspace{-1.5mm}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{66mm}
@@ -711,7 +712,7 @@
 % 16. Độ nhạy của mô hình chính, sức chứa ×3
 \sfoot{Hai dòng cuối là nghiệm pha 1, chưa chứng minh tối ưu}
 \begin{frame}{Bán kính nhỏ giải tối ưu nhanh}
-  \framesubtitle{ĐỘ NHẠY CỦA MÔ HÌNH CHÍNH · PHƯƠNG ÁN B · SỨC CHỨA ×3}
+  \framesubtitle{Độ nhạy của mô hình chính · phương án B · sức chứa ×3}
   \begin{dtab}{R{12mm}R{11mm}R{15mm}R{15mm}R{19mm}R{16mm}L{29.6mm}}
     \rowcolor{brand}\hd{R (m)} & \hd{α} & \hd{Giới hạn} & \hd{Số trạm} & \hd{Chi phí (tỷ)} & \hd{Độ phủ} & \hd{Trạng thái} \\
     300 & 0,50 & 20 s & 23 & 8,20 & 50,10\% & Tối ưu (4 s) \\ \hline
@@ -735,7 +736,7 @@
 % 17. Bốn mô hình trên cùng thước đo
 \sfoot{L1 (EPSG:32648), 184 ứng viên · R = 300 m, p = 31 (seed 0) · Vượt SC: trạm quá tải khi gán gần nhất}
 \begin{frame}{Cùng 31 trạm, mô hình chính rẻ hơn 2,9 tỷ}
-  \framesubtitle{BỐN MÔ HÌNH TRÊN CÙNG THƯỚC ĐO · L1 · R = 300 M}
+  \framesubtitle{Bốn mô hình trên cùng thước đo · L1 · R = 300 m}
   \vspace{-1mm}
   \begin{dtab}[1.45]{L{32mm}R{10.5mm}R{16.5mm}R{15.6mm}R{13mm}R{15mm}R{15mm}}
     \rowcolor{brand}\hd{Mô hình} & \hd{Trạm} & \hd{Chi phí (tỷ)} & \hd{Phủ trong R} & \hd{KC TB (m)} & \hd{Vượt SC ×3} & \hd{Vượt SC ×1} \\
@@ -767,21 +768,21 @@
 \section{Thảo luận và kết luận}
 \sfoot{Tiền kiểm loại sớm cấu hình không khả thi mà không tốn thời gian solver}
 \begin{frame}{Bốn điều rút ra từ dữ liệu Cầu Giấy}
-  \framesubtitle{THẢO LUẬN}
+  \framesubtitle{Thảo luận}
   \begin{tcbraster}[raster columns=2]
-    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm]\cardhead[accent]{Bán kính phục vụ}
+    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm, title={Bán kính phục vụ}]
       R = 500 m không đạt 95\% với phương án A. Cần R = 800 m hoặc thêm ứng viên như phương án B.
     \end{card}
-    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm]\cardhead[accent]{Công suất}
+    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm, title={Công suất}]
       Gán về trạm gần nhất làm sức chứa gốc vô nghiệm dù tổng năng lực gấp 3,5 lần nhu cầu.
       Nhân 2 đến 3 lần thì giải được.
     \end{card}
-    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm]\cardhead[accent]{So với mô hình đối chứng}
+    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm, title={So với mô hình đối chứng}]
       Trên cùng L1 (184 ứng viên): ở R = 300 m (31 trạm) mô hình chính rẻ hơn 2,9 tỷ; ở R = 800 m,
       set covering cần 18 trạm, max covering 14 trạm phủ 99,42\% nhưng bỏ qua công suất
       (mô hình chính: 14 trạm, 95,07\%).
     \end{card}
-    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm]\cardhead[accent]{Thời gian giải}
+    \begin{card}[top=3mm, bottom=3mm, left=3.6mm, right=3.6mm, title={Thời gian giải}]
       Ở R lớn, nghiệm phụ thuộc mạnh vào giới hạn thời gian: 115 trạm sau 300 giây nhưng 14 trạm
       sau 900 giây cho cùng một bộ tham số.
     \end{card}
@@ -797,7 +798,7 @@
 % 19. Kết luận
 \sfoot{Nhóm 18 · Cảm ơn cô và các bạn đã lắng nghe}
 \begin{frame}{Một pipeline chạy được từ dữ liệu thật tới bản đồ}
-  \framesubtitle{KẾT LUẬN VÀ HƯỚNG PHÁT TRIỂN}
+  \framesubtitle{Kết luận và hướng phát triển}
   \vspace{2mm}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{66mm}
@@ -836,15 +837,15 @@
 
 \sfoot{Phụ lục · \code{src/model\_main.py}}
 \begin{frame}{Hàm mục tiêu và chế độ giải}
-  \framesubtitle{PHỤ LỤC · MÔ HÌNH}
+  \framesubtitle{Phụ lục · mô hình}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{66mm}
-      \begin{card}[fontupper=\Flead\color{soft}]\cardhead{Mặc định: \code{min\_stations\_then\_cost}}
+      \begin{card}[fontupper=\Flead\color{soft}, title={Mặc định: \code{min\_stations\_then\_cost}}]
         Pha 1: $\min \sum_j x_j \;\Rightarrow\; k^*$\\[1mm]
         Pha 2: $\min \sum_j f_j x_j$ \;với\; $\sum_j x_j = k^*$
       \end{card}
       \vspace{3mm}
-      \begin{card}[fontupper=\Flead\color{soft}]\cardhead{Thử nghiệm: \code{fixed\_station\_count}}
+      \begin{card}[fontupper=\Flead\color{soft}, title={Thử nghiệm: \code{fixed\_station\_count}}]
         Một lần giải: $\min \sum_j f_j x_j$ \;với\; $\sum_j x_j = p$
       \end{card}
     \end{column}
@@ -863,10 +864,10 @@
 
 \sfoot{Phụ lục · Mã thoát CLI: 0 giải được và kiểm định đạt; 1 bất khả thi; 2 lỗi đầu vào; 3 lỗi solver hoặc kiểm định}
 \begin{frame}{CLI và giao diện Streamlit}
-  \framesubtitle{PHỤ LỤC · HỆ THỐNG}
+  \framesubtitle{Phụ lục · hệ thống}
   \vspace{-1mm}
   \begin{tcbraster}[raster columns=2, raster column skip=4mm]
-    \begin{card}[top=2.0mm, bottom=2.0mm]\cardhead{CLI: \code{python -m src.run}}
+    \begin{card}[top=2.0mm, bottom=2.0mm, title={CLI: \code{python -m src.run}}]
       \begin{bul}[0.8mm]
         \item \code{--radius}, \code{--alpha}, \code{--cap-scale}, \code{--demand-scale}
         \item \code{--objective}, \code{--station-count}, \code{--time-limit}, \code{--mip-rel-gap}
@@ -875,7 +876,7 @@
         \item Đối chứng L1: \code{python src/models.py --metric l1}
       \end{bul}
     \end{card}
-    \begin{card}[top=2.0mm, bottom=2.0mm]\cardhead{Giao diện: \code{streamlit run app.py}}
+    \begin{card}[top=2.0mm, bottom=2.0mm, title={Giao diện: \code{streamlit run app.py}}]
       \begin{bul}[0.8mm]
         \item Bộ chọn 4 mô hình (chính + 3 đối chứng) trên cùng ma trận L1, kèm bảng so sánh phiên.
         \item Cùng hàm \code{build\_scenario\_problem} và \code{solve\_scenario} với CLI; chỉ giải khi bấm \emph{Chạy kịch bản}.
@@ -896,7 +897,7 @@
 
 \sfoot{Phụ lục · 101 test offline chạy mặc định (\code{pytest -q}); 15 test e2e chạy riêng (\code{pytest -m e2e -o addopts=})}
 \begin{frame}{Kiểm thử và tái lập}
-  \framesubtitle{PHỤ LỤC · KIỂM THỬ}
+  \framesubtitle{Phụ lục · kiểm thử}
   \vspace{-2mm}
   \begin{columns}[T, onlytextwidth]
     \begin{column}{66mm}
