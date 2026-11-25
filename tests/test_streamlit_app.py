@@ -72,3 +72,116 @@ def test_app_recovers_from_a_stale_distance_matrix(tmp_path):
     streamlit.cache_data.clear()
     assert not at.exception, [str(e.value) for e in at.exception]
 
+
+def test_model_selector_appears_before_form_and_switches_inputs():
+    at = AppTest.from_file(str(APP), default_timeout=120)
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    assert len(at.sidebar.radio) == 1
+    radio = at.sidebar.radio[0]
+    assert radio.label == "Mô hình"
+    assert radio.options == [
+        "Mô hình chính · MILP hai pha",
+        "Set covering",
+        "Max covering",
+        "p-median",
+    ]
+    # Selector sits above the parameter form in the sidebar
+    assert at.sidebar.children[1].type == "radio"
+
+    radio.set_value("Set covering").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    slider_labels = [s.label for s in at.sidebar.slider]
+    assert "Bán kính phục vụ R (m)" in slider_labels
+    assert "Tỷ lệ phủ tối thiểu α" not in slider_labels
+    assert len(at.sidebar.number_input) == 0
+
+    at.sidebar.radio[0].set_value("Max covering").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    assert [s.label for s in at.sidebar.slider] == ["Bán kính phục vụ R (m)"]
+    assert [n.label for n in at.sidebar.number_input] == ["Số trạm p"]
+
+    at.sidebar.radio[0].set_value("p-median").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    assert [s.label for s in at.sidebar.slider] == ["Bán kính đánh giá R (m)"]
+    assert [n.label for n in at.sidebar.number_input] == ["Số trạm p"]
+
+
+def test_set_covering_default_matches_models_and_preserves_sessions():
+    from src import models
+
+    D_l1, _pop, _ids = models.load_inputs("l1", APP.parent / "data")
+    expected_stations, _coverable, _status = models.set_covering(D_l1, 300)
+
+    at = AppTest.from_file(str(APP), default_timeout=240)
+    at.run()
+    at.sidebar.radio[0].set_value("Set covering").run()
+    at.button[0].click()
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+
+    station_metric = [m.value for m in at.metric if m.label == "Số trạm"]
+    assert station_metric == [str(len(expected_stations))]
+    assert any("Mô hình này không xét sức chứa" in c.value and "×3" in c.value for c in at.caption)
+    # 2 result tabs + 1 comparison table
+    assert len(at.dataframe) == 3
+    comp_df = at.dataframe[2].value
+    assert list(comp_df["Mô hình"]) == ["Set covering"]
+    assert "Trạm vượt sức chứa (×3)" in comp_df.columns
+
+    # Switching back to the main model leaves its own idle state intact
+    at.sidebar.radio[0].set_value("Mô hình chính · MILP hai pha").run()
+    assert [m.value for m in at.metric if m.label == "Trạng thái"] == ["Chưa chạy"]
+    # Switching back to Set covering still shows its solved result
+    at.sidebar.radio[0].set_value("Set covering").run()
+    assert [m.value for m in at.metric if m.label == "Số trạm"] == [str(len(expected_stations))]
+
+
+def test_comparison_uses_main_capacity_scale_x3():
+    from src import distances_l1, models, preprocessing
+    from src.app_baselines import compute_nearest_assignment, count_over_capacity
+
+    data_dir = APP.parent / "data"
+    demand_df = preprocessing.load_demand(data_dir / "demand.csv")
+    cand_df = preprocessing.load_candidates(data_dir / "candidates_feasible.csv")
+    params_df = preprocessing.load_station_parameters(data_dir / "station_parameters.csv")
+    dist, _manifest = distances_l1.load(data_dir)
+    problem_x1 = preprocessing.build_problem_data(demand_df, cand_df, params_df, 300.0, 0.0, cap_scale=1.0)
+    col_mask = models.enabled_columns(problem_x1.candidate_ids, cand_df, params_df)
+    D_l1, pop, _ids = models.load_inputs("l1", data_dir)
+    sc_res = models.run_baseline("set_covering", D_l1, pop, R=300.0)
+    selected_full = np.flatnonzero(col_mask)[sc_res["selected"]]
+    assign = compute_nearest_assignment(dist, selected_full, problem_x1.candidate_ids, 300.0)
+    loads = np.zeros(len(problem_x1.candidate_ids), dtype=float)
+    for i, j in enumerate(assign):
+        if j >= 0:
+            loads[j] += float(problem_x1.daily_demand[i])
+    expected_over_x3 = count_over_capacity(selected_full, loads, problem_x1.capacities, capacity_scale=3.0)
+
+    at = AppTest.from_file(str(APP), default_timeout=600)
+    at.run()
+    # Run main model at default x3
+    at.button[0].click()
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+
+    # Run Set covering at default R=300
+    at.sidebar.radio[0].set_value("Set covering").run()
+    at.button[0].click()
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+
+    assert any("×3" in c.value for c in at.caption)
+    comp_df = at.dataframe[2].value
+    assert "Trạm vượt sức chứa (×3)" in comp_df.columns
+    assert list(comp_df["Mô hình"]) == ["Mô hình chính", "Set covering"]
+    assert list(comp_df["Trạm vượt sức chứa (×3)"]) == [0, expected_over_x3]
+
+    # Station costs are integer millions of VND (no decimal commas/localized formatting)
+    station_df = at.dataframe[0].value
+    assert np.issubdtype(station_df["Chi phí"].dtype, np.integer)
+    assert np.issubdtype(station_df["Sức chứa"].dtype, np.integer)
+    assert np.issubdtype(station_df["Tải/ngày"].dtype, np.integer)
+
+
+
