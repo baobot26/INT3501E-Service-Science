@@ -10,6 +10,8 @@ COPY requirements.txt requirements-dev.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 COPY pytest.ini ruff.toml ./
+COPY .streamlit/ .streamlit/
+COPY static/ static/
 COPY src/ src/
 COPY tests/ tests/
 COPY app.py ./

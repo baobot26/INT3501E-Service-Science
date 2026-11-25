@@ -13,3 +13,17 @@ jobs:
       - run: docker build -t service-science .
       - run: docker run --rm service-science ruff check .
       - run: docker run --rm service-science pytest -q --cov=src --cov-report=term
+
+  e2e:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.65.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt -r requirements-e2e.txt
+      - run: pytest -m e2e tests/e2e -o addopts="" --output=test-results --screenshot=only-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts
+          path: test-results/

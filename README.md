@@ -162,10 +162,22 @@ Deploy lên Streamlit Community Cloud: repo đã có `app.py` ở gốc, `requir
 file entrypoint `app.py`; Cloud tự cài `requirements.txt` và chạy `streamlit run app.py`.
 `rasterio` chỉ nằm trong `requirements-dev.txt` vì không cần cho app.
 
+Đặc tả giao diện, bảng màu sáng/tối, độ tương phản và quy tắc thành phần xem tại [DESIGN.md](DESIGN.md).
+
+Lưu ý khi trình chiếu: ứng dụng hỗ trợ **System / Light / Dark** trong menu `⋮` (góc trên bên phải); nếu laptop đang đặt dark mode của hệ điều hành, hãy chọn **Light** trong menu `⋮` rồi tải lại trang trước khi chiếu trên máy chiếu phòng sáng (bản đồ cập nhật theo theme khi tải lại phiên).
+
 ### Chạy test
 
 ```bash
-.venv/bin/python -m pytest -q                     # offline, không cần mạng
+.venv/bin/python -m pytest -q                     # offline, không cần mạng (bỏ qua e2e)
+```
+
+### Kiểm thử giao diện (e2e)
+
+Bộ kiểm thử Playwright (`tests/e2e/test_ui.py`, marker `e2e`) tách khỏi `pytest` mặc định và chạy trong một job CI riêng. Để chạy trên máy bằng Docker (PowerShell trên Windows):
+
+```powershell
+docker run --rm -v "${PWD}:/work" -w /work mcr.microsoft.com/playwright/python:v1.65.2-noble sh -c 'pip install -r requirements.txt -r requirements-dev.txt -r requirements-e2e.txt && pytest -m e2e tests/e2e -o addopts='
 ```
 
 ### Chạy bằng Docker
