@@ -44,20 +44,36 @@ def _open_app(page: Page, app_url: str, width: int = 1440, height: int = 900, wa
         expect(_map_frame(page).locator(".leaflet-container")).to_be_visible(timeout=30_000)
 
 
+def _click_until(toggle: Locator, done: Locator, want_visible: bool) -> None:
+    """Click a sidebar toggle until `done` reaches the wanted visibility.
+
+    After a viewport change Streamlit re-lays out the sidebar: the toggle can detach
+    mid-click, or the sidebar can collapse on its own. A plain is_visible() + click()
+    then waits 30 s on a button that is gone, so try briefly twice and check the end state.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    for _ in range(2):
+        if done.is_visible() == want_visible:
+            break
+        try:
+            toggle.click(timeout=5_000)
+        except PlaywrightTimeoutError:
+            pass
+    if want_visible:
+        expect(done).to_be_visible(timeout=10_000)
+    else:
+        expect(done).not_to_be_visible(timeout=10_000)
+
+
 def _ensure_sidebar_open(page: Page) -> None:
-    btn = _run_button(page)
-    if not btn.is_visible():
-        toggle = page.locator('[data-testid="stExpandSidebarButton"]').first
-        if toggle.is_visible():
-            toggle.click()
-        expect(btn).to_be_visible(timeout=10_000)
+    toggle = page.locator('[data-testid="stExpandSidebarButton"]').first
+    _click_until(toggle, _run_button(page), want_visible=True)
 
 
 def _collapse_sidebar_if_open(page: Page) -> None:
-    collapse = page.locator('[data-testid="stSidebarCollapseButton"] button').first
-    if collapse.is_visible():
-        collapse.click()
-        expect(page.locator('[data-testid="stSidebar"]')).not_to_be_visible(timeout=10_000)
+    toggle = page.locator('[data-testid="stSidebarCollapseButton"] button').first
+    _click_until(toggle, page.locator('[data-testid="stSidebar"]'), want_visible=False)
 
 
 def _set_slider(page: Page, name: str, target: float, tol: float = 1e-4) -> None:
