@@ -12,6 +12,8 @@ cache/
 # large data files
 data/*.tif
 data/*.graphml
+store/
+data/areas/
 
 # reproducible results
 data/dist.npy

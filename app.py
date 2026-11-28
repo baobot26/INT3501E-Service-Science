@@ -6,6 +6,7 @@ và dùng chung src/models.py với CLI (python src/models.py --metric l1) cho 3
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -38,7 +39,7 @@ from src.make_map import (
 )
 from src.preprocessing import InputError
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+DATA_DIR = Path(os.environ.get("APP_DATA_DIR") or Path(__file__).resolve().parent / "data")
 BOUNDARY_PATH = DATA_DIR / "boundary.geojson"
 MAP_HEIGHT = 560
 

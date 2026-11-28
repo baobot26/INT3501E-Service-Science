@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="test-fixture">
+  <!-- Candidate 1: convenience store outside H and C -->
+  <node id="1" version="1" lat="21.0300" lon="105.8000">
+    <tag k="shop" v="convenience"/>
+    <tag k="name" v="Mini Mart"/>
+  </node>
+  <!-- Candidate 2: supermarket inside residential building (way 100) -->
+  <node id="2" version="1" lat="21.0305" lon="105.8015">
+    <tag k="shop" v="supermarket"/>
+    <tag k="name" v="Resi Market"/>
+  </node>
+  <!-- Candidate 3: post office inside water polygon (way 102) -->
+  <node id="3" version="1" lat="21.0325" lon="105.8030">
+    <tag k="amenity" v="post_office"/>
+    <tag k="name" v="Lake Post"/>
+  </node>
+
+  <!-- Nodes for way 100: building=residential -->
+  <node id="10" version="1" lat="21.0300" lon="105.8010"/>
+  <node id="11" version="1" lat="21.0300" lon="105.8020"/>
+  <node id="12" version="1" lat="21.0310" lon="105.8020"/>
+  <node id="13" version="1" lat="21.0310" lon="105.8010"/>
+
+  <!-- Nodes for way 101: amenity=parking -->
+  <node id="20" version="1" lat="21.0315" lon="105.7990"/>
+  <node id="21" version="1" lat="21.0315" lon="105.8000"/>
+  <node id="22" version="1" lat="21.0325" lon="105.8000"/>
+  <node id="23" version="1" lat="21.0325" lon="105.7990"/>
+
+  <!-- Nodes for way 102: natural=water -->
+  <node id="30" version="1" lat="21.0320" lon="105.8025"/>
+  <node id="31" version="1" lat="21.0320" lon="105.8035"/>
+  <node id="32" version="1" lat="21.0330" lon="105.8035"/>
+  <node id="33" version="1" lat="21.0330" lon="105.8025"/>
+
+  <way id="100" version="1">
+    <nd ref="10"/>
+    <nd ref="11"/>
+    <nd ref="12"/>
+    <nd ref="13"/>
+    <nd ref="10"/>
+    <tag k="building" v="residential"/>
+  </way>
+
+  <way id="101" version="1">
+    <nd ref="20"/>
+    <nd ref="21"/>
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <nd ref="20"/>
+    <tag k="amenity" v="parking"/>
+    <tag k="name" v="Central Parking"/>
+  </way>
+
+  <way id="102" version="1">
+    <nd ref="30"/>
+    <nd ref="31"/>
+    <nd ref="32"/>
+    <nd ref="33"/>
+    <nd ref="30"/>
+    <tag k="natural" v="water"/>
+  </way>
+</osm>

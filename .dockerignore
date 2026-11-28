@@ -9,6 +9,8 @@ test-results/
 .gitnexus/
 cache/
 results/
+store/
+data/areas/
 docs/
 AGENTS.md
 CLAUDE.md

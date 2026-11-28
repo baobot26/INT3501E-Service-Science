@@ -37,10 +37,10 @@ WGS84 = "EPSG:4326"
 NETWORK_BUFFER_M = 500  # fetch roads beyond the boundary so edge points still get distances
 
 OUT = Path("data")
-OUT.mkdir(exist_ok=True)
 
 
 def get_boundary():
+    OUT.mkdir(parents=True, exist_ok=True)
     try:
         wards = ox.geocode_to_gdf(WARDS)
         print(f"boundary: fetched {len(wards)} wards from OSM")
@@ -58,12 +58,14 @@ def get_boundary():
     return area
 
 
-def get_candidates(area):
-    poly = area.geometry.iloc[0]
-    feats = ox.features_from_polygon(poly, tags=CANDIDATE_TAGS).reset_index()
+def candidates_table(feats: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Build the standardized candidates table (centroids + site_type) from OSM features."""
+    cols = ["id", "osm_id", "lat", "lon", "type", "name"]
+    if feats.empty:
+        return pd.DataFrame(columns=cols)
 
     # polygon features (buildings, parking lots): use the centroid
-    pts = feats.to_crs(METRIC_CRS)
+    pts = feats.reset_index().to_crs(METRIC_CRS)
     pts["geometry"] = pts.geometry.centroid
     pts = pts.to_crs(WGS84)
 
@@ -82,13 +84,26 @@ def get_candidates(area):
     })
     df = df[df["type"] != "other"].reset_index(drop=True)
     df.insert(0, "id", range(len(df)))
-    df.to_csv(OUT / "candidates.csv", index=False, encoding="utf-8-sig")
+    return df
+
+
+def get_candidates(area, out_dir=OUT, feats=None):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if feats is None:
+        poly = area.geometry.iloc[0]
+        feats = ox.features_from_polygon(poly, tags=CANDIDATE_TAGS)
+
+    df = candidates_table(feats)
+    df.to_csv(out_dir / "candidates.csv", index=False, encoding="utf-8-sig")
     print(f"candidate points: {len(df)}")
-    print(df["type"].value_counts().to_string())
+    if not df.empty:
+        print(df["type"].value_counts().to_string())
     return df
 
 
 def get_network(area):
+    OUT.mkdir(parents=True, exist_ok=True)
     buffered = area.to_crs(METRIC_CRS).buffer(NETWORK_BUFFER_M).to_crs(WGS84).iloc[0]
     for attempt in range(5):
         try:
@@ -105,36 +120,43 @@ def get_network(area):
     return G
 
 
-def get_demand(area):
+def get_demand(area, tif=WORLDPOP_TIF, out_dir=OUT):
     import numpy as np
     import rasterio
     from rasterio.mask import mask
     from rasterio.transform import xy
 
-    if not Path(WORLDPOP_TIF).exists():
-        print(f"skipping demand points: missing {WORLDPOP_TIF}")
-        return pd.DataFrame()
+    tif_path = Path(tif)
+    if not tif_path.is_file():
+        raise FileNotFoundError(f"missing population raster: {tif_path}")
 
-    with rasterio.open(WORLDPOP_TIF) as src:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    with rasterio.open(tif_path) as src:
         shapes = area.to_crs(src.crs).geometry
         img, transform = mask(src, shapes, crop=True, nodata=0)
         band = img[0]
         rows, cols = np.where(band > 0)  # drop cells with no population
-        xs, ys = xy(transform, rows, cols)
-        pts = gpd.GeoDataFrame(
-            {"population": band[rows, cols]},
-            geometry=gpd.points_from_xy(xs, ys),
-            crs=src.crs,
-        ).to_crs(WGS84)
+        if len(rows) == 0:
+            df = pd.DataFrame(columns=["id", "lat", "lon", "population"])
+        else:
+            xs, ys = xy(transform, rows, cols)
+            pts = gpd.GeoDataFrame(
+                {"population": band[rows, cols]},
+                geometry=gpd.points_from_xy(xs, ys),
+                crs=src.crs,
+            ).to_crs(WGS84)
+            df = pd.DataFrame({
+                "id": range(len(pts)),
+                "lat": pts.geometry.y,
+                "lon": pts.geometry.x,
+                "population": pts["population"].round(1),
+            })
 
-    df = pd.DataFrame({
-        "id": range(len(pts)),
-        "lat": pts.geometry.y,
-        "lon": pts.geometry.x,
-        "population": pts["population"].round(1),
-    })
-    df.to_csv(OUT / "demand.csv", index=False)
-    print(f"demand points: {len(df)}, total population about {df['population'].sum():,.0f}")
+    df.to_csv(out_dir / "demand.csv", index=False)
+    total_pop = df["population"].sum() if not df.empty else 0.0
+    print(f"demand points: {len(df)}, total population about {total_pop:,.0f}")
     return df
 
 

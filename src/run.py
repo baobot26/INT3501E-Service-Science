@@ -124,7 +124,8 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     run_config = {
-        "run_id": run_id, "mode": args.mode, "radius_m": args.radius,
+        "run_id": run_id, "data_dir": str(args.data_dir),
+        "mode": args.mode, "radius_m": args.radius,
         "alpha": args.alpha, "cap_scale": args.cap_scale,
         "demand_scale": args.demand_scale,
         "objective_mode": args.objective,

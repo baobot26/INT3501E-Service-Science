@@ -14,6 +14,7 @@ from src.preprocessing import (InputError, load_candidates, load_demand,
 
 NPY_NAME = "dist_l1.npy"
 MANIFEST_NAME = "dist_l1_manifest.json"
+MAX_CELLS = 25_000_000  # ~100 MB dense float32 matrix
 
 
 def _project_to_32648(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -41,6 +42,13 @@ def compute_matrix(demand_df: pd.DataFrame, cand_df: pd.DataFrame,
         raise InputError(f"candidate type missing from station_parameters.csv: {sorted(unknown)}")
     if feasible.empty:
         raise InputError("no feasible candidates for distance computation")
+
+    n, m = len(demand_df), len(feasible)
+    if n * m > MAX_CELLS:
+        raise InputError(
+            f"distance matrix too large ({n} x {m} = {n * m:,} cells > {MAX_CELLS:,}); "
+            "use a smaller boundary"
+        )
 
     demand_xy = _project_to_32648(demand_df["lat"].values, demand_df["lon"].values)
     cand_xy = _project_to_32648(feasible["lat"].values, feasible["lon"].values)

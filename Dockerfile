@@ -2,8 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# rasterio is kept in requirements-dev.txt for the optional data-fetch job.
-RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+# rasterio is kept in requirements-dev.txt for the optional data-fetch job;
+# osmium-tool extracts sub-regions from the national OSM PBF store.
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 osmium-tool \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt requirements-dev.txt ./
