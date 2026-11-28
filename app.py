@@ -6,13 +6,18 @@ và dùng chung src/models.py với CLI (python src/models.py --metric l1) cho 3
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from src import distances_l1, preprocessing, run
+from src import app_areas, distances_l1, preprocessing, run
+from src.app_areas import (
+    DEFAULT_LABEL,
+    relative_data_dir,
+    render_draw_area_view,
+    select_area_sidebar,
+)
 from src.app_baselines import (
     DEFAULT_CAPACITY_SCALE,
     MODEL_CAPTIONS,
@@ -39,8 +44,6 @@ from src.make_map import (
 )
 from src.preprocessing import InputError
 
-DATA_DIR = Path(os.environ.get("APP_DATA_DIR") or Path(__file__).resolve().parent / "data")
-BOUNDARY_PATH = DATA_DIR / "boundary.geojson"
 MAP_HEIGHT = 560
 
 SOLUTION_SOURCE_LABELS = {
@@ -241,6 +244,13 @@ def build_custom_css(mode: str) -> str:
   }}
 
   /* Nhóm tham số trong thanh bên */
+  [data-testid="stSidebarHeader"] {{
+    height: 2.5rem;
+    padding-bottom: 0.25rem;
+  }}
+  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+    gap: 0.65rem;
+  }}
   [data-testid="stSidebar"] [data-testid="stForm"] {{
     border: none;
     padding: 0;
@@ -319,13 +329,14 @@ def build_custom_css(mode: str) -> str:
 
 
 @st.cache_data(show_spinner=False)
-def load_static_data():
-    """Đọc dữ liệu gốc và ma trận khoảng cách Manhattan L1 một lần duy nhất."""
-    demand_df = preprocessing.load_demand(DATA_DIR / "demand.csv")
-    cand_df = preprocessing.load_candidates(DATA_DIR / "candidates_feasible.csv")
-    params_df = preprocessing.load_station_parameters(DATA_DIR / "station_parameters.csv")
+def load_static_data(data_dir: str):
+    """Đọc dữ liệu gốc và ma trận khoảng cách Manhattan L1 một lần cho mỗi khu vực."""
+    base = Path(data_dir)
+    demand_df = preprocessing.load_demand(base / "demand.csv")
+    cand_df = preprocessing.load_candidates(base / "candidates_feasible.csv")
+    params_df = preprocessing.load_station_parameters(base / "station_parameters.csv")
     try:
-        dist, manifest = distances_l1.load(DATA_DIR)
+        dist, manifest = distances_l1.load(base)
         preprocessing.validate_distance_manifest(
             dist, manifest, demand_df["id"].values,
             cand_df.loc[cand_df["feasible"], "id"].values,
@@ -335,14 +346,14 @@ def load_static_data():
     return demand_df, cand_df, params_df, dist, manifest
 
 
-def build_main_header_line(params: dict) -> str:
+def build_main_header_line(params: dict, area_label: str = DEFAULT_LABEL) -> str:
     objective_short = (
         "Ít trạm nhất, rồi tối thiểu chi phí"
         if params["objective_mode"] == "min_stations_then_cost"
         else f"Cố định p = {params['p_input']} trạm, tối thiểu chi phí"
     )
     return (
-        f"Quận Cầu Giấy cũ (3 phường) · Mô hình chính · R = {fmt_vi_int(params['radius'])} m, "
+        f"Khu vực: {area_label} · Mô hình chính · R = {fmt_vi_int(params['radius'])} m, "
         f"α = {fmt_vi_pct_clean(params['alpha'] * 100)}, "
         f"sức chứa ×{fmt_vi_decimal(params['capacity_scale'], 1)}, "
         f"nhu cầu ×{fmt_vi_decimal(params['demand_scale'], 1)} · {objective_short}."
@@ -350,7 +361,7 @@ def build_main_header_line(params: dict) -> str:
 
 
 st.set_page_config(
-    page_title="Quy hoạch vị trí đặt tủ đồ thông minh — Quận Cầu Giấy",
+    page_title="Quy hoạch vị trí đặt tủ đồ thông minh",
     page_icon=":material/map:",
     layout="wide",
     initial_sidebar_state="auto",
@@ -358,11 +369,23 @@ st.set_page_config(
 theme_mode = current_theme_mode()
 st.html(build_custom_css(theme_mode))
 
+# --- Thanh bên: bộ chọn khu vực (trên cùng) ---
+_app_root = Path(__file__).resolve().parent
+_default_data_override = _app_root / "data" if _app_root != app_areas.ROOT else None
+data_dir = select_area_sidebar(default_data_dir=_default_data_override)
+if data_dir is None:
+    render_draw_area_view()
+    st.stop()
+
+area_label = str(st.session_state.get("area") or DEFAULT_LABEL)
+boundary_path = data_dir / "boundary.geojson"
+data_dir_rel = relative_data_dir(data_dir)
+
 try:
-    demand_df, cand_df, params_df, dist, manifest = load_static_data()
+    demand_df, cand_df, params_df, dist, manifest = load_static_data(str(data_dir))
 except (InputError, FileNotFoundError) as exc:
     render_app_header(
-        "Quận Cầu Giấy cũ (3 phường) · Bài toán tối ưu vị trí trạm dịch vụ theo khoảng cách Manhattan L1."
+        f"Khu vực: {area_label} · Bài toán tối ưu vị trí trạm dịch vụ theo khoảng cách Manhattan L1."
     )
     st.error(
         f"Thiếu hoặc lỗi dữ liệu đầu vào: {exc}. "
@@ -373,7 +396,7 @@ except (InputError, FileNotFoundError) as exc:
 runs: dict[str, dict] = st.session_state.setdefault("runs", {})
 
 # --- Thanh bên: bộ chọn mô hình (ngoài form) + form theo mô hình ---
-st.sidebar.html('<div class="sidebar-group-heading first">Mô hình</div>')
+st.sidebar.html('<div class="sidebar-group-heading">Mô hình</div>')
 selected_model_label = st.sidebar.radio(
     "Mô hình",
     options=MODEL_OPTIONS,
@@ -507,7 +530,7 @@ else:
     form_params = handle_baseline_sidebar(model_key, demand_df, cand_df, params_df, dist, runs)
 
 preview_html = render_preview_map_html(
-    demand_df, cand_df, params_df, str(BOUNDARY_PATH), form_params["enabled_flags"], theme_mode
+    demand_df, cand_df, params_df, str(boundary_path), form_params["enabled_flags"], theme_mode
 )
 
 run_state = runs.get(model_key)
@@ -515,7 +538,7 @@ active_params = run_state["params"] if run_state is not None else form_params
 
 # --- Vùng chính: tiêu đề + khung tên + bản đồ + bảng + tải về + so sánh ---
 if model_key == "main":
-    render_app_header(build_main_header_line(active_params))
+    render_app_header(build_main_header_line(active_params, area_label=area_label))
 
     if run_state is None:
         enabled_types = [t for t, is_on in form_params["enabled_flags"] if is_on]
@@ -533,7 +556,7 @@ if model_key == "main":
             preview_html,
             height=MAP_HEIGHT,
             width="stretch",
-            alt="Bản đồ xem trước quận Cầu Giấy gồm ranh giới 3 phường, các điểm ứng viên và phân bố nhu cầu",
+            alt=f"Bản đồ xem trước khu vực {area_label} gồm ranh giới, các điểm ứng viên và phân bố nhu cầu",
         )
         st.html(
             '<p class="map-hint">'
@@ -543,7 +566,7 @@ if model_key == "main":
         st.stop()
 
     err_preview_html = render_preview_map_html(
-        demand_df, cand_df, params_df, str(BOUNDARY_PATH), active_params["enabled_flags"], theme_mode
+        demand_df, cand_df, params_df, str(boundary_path), active_params["enabled_flags"], theme_mode
     )
     base_r_txt = f"{fmt_vi_int(active_params['radius'])} m"
     base_alpha_txt = fmt_vi_pct_clean(active_params["alpha"] * 100)
@@ -711,7 +734,7 @@ if model_key == "main":
         selected=selected,
         assignment=assignment,
         loads=loads,
-        boundary_path=BOUNDARY_PATH,
+        boundary_path=boundary_path,
         mode=theme_mode,
     )
     st.iframe(
@@ -783,6 +806,7 @@ if model_key == "main":
         loads,
         {
             "model": "main",
+            "data_dir": data_dir_rel,
             "status": status,
             "station_count": result["station_count"],
             "total_cost": result["total_cost"],
@@ -813,7 +837,9 @@ else:
         dist,
         preview_html,
         theme_mode,
-        BOUNDARY_PATH,
+        boundary_path,
+        area_label=area_label,
+        data_dir_rel=data_dir_rel,
     )
 
 render_comparison_table(runs, demand_df, dist)

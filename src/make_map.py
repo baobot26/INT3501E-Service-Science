@@ -867,15 +867,21 @@ def build_map(run_dir, boundary_path):
     return m
 
 
-def main():
+def boundary_path_for_run(run_dir: str | Path) -> Path:
+    """Lấy đường dẫn ranh giới từ khóa `data_dir` trong `summary.json` (mặc định `data/boundary.geojson`)."""
+    summary = json.loads((Path(run_dir) / "summary.json").read_text(encoding="utf-8"))
+    return Path(summary.get("data_dir") or "data") / "boundary.geojson"
+
+
+def main(argv: list[str] | None = None):
     p = argparse.ArgumentParser()
     p.add_argument("--run", type=Path, default=None)
     p.add_argument("--results-dir", type=Path, default=Path("results"))
-    p.add_argument("--boundary", type=Path, default=Path("data/boundary.geojson"))
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     run_dir = args.run or latest_run(args.results_dir)
-    m = build_map(run_dir, args.boundary)
+    boundary_path = boundary_path_for_run(run_dir)
+    m = build_map(run_dir, boundary_path)
     out = Path(run_dir) / "map.html"
     m.save(str(out))
     print(f"đã lưu {out}, mở bằng trình duyệt")

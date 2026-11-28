@@ -295,18 +295,23 @@ def format_comparison_params(model_key: str, params: dict) -> str:
     return f"p={params['p']} ({r_txt})"
 
 
-def build_baseline_header_line(model_key: str, params: dict) -> str:
+def build_baseline_header_line(
+    model_key: str,
+    params: dict,
+    area_label: str = "Cầu Giấy (mặc định)",
+) -> str:
     """Dòng tóm tắt cấu hình dưới tiêu đề chính cho 3 mô hình baseline."""
     r_txt = fmt_vi_int(params["radius"])
+    prefix = f"Khu vực: {area_label}"
     if model_key == "set_covering":
-        return f"Quận Cầu Giấy cũ (3 phường) · Set covering · R = {r_txt} m · không xét sức chứa."
+        return f"{prefix} · Set covering · R = {r_txt} m · không xét sức chứa."
     if model_key == "max_covering":
         return (
-            f"Quận Cầu Giấy cũ (3 phường) · Max covering · "
+            f"{prefix} · Max covering · "
             f"R = {r_txt} m · p = {params['p']} · không xét sức chứa."
         )
     return (
-        f"Quận Cầu Giấy cũ (3 phường) · p-median · "
+        f"{prefix} · p-median · "
         f"p = {params['p']} · R = {r_txt} m chỉ dùng để tính độ phủ · không xét sức chứa."
     )
 
@@ -540,9 +545,12 @@ def render_baseline_view(
     preview_html: str,
     theme_mode: str,
     boundary_path: Path,
+    *,
+    area_label: str = "Cầu Giấy (mặc định)",
+    data_dir_rel: str = "data",
 ) -> None:
     """Hiển thị toàn bộ kết quả (hoặc trạng thái chờ/lỗi) cho mô hình baseline."""
-    render_app_header(build_baseline_header_line(model_key, active_params))
+    render_app_header(build_baseline_header_line(model_key, active_params, area_label=area_label))
     base_r_txt = f"{fmt_vi_int(active_params['radius'])} m"
 
     if run_state is None:
@@ -579,7 +587,7 @@ def render_baseline_view(
             preview_html,
             height=MAP_HEIGHT,
             width="stretch",
-            alt="Bản đồ xem trước quận Cầu Giấy gồm ranh giới 3 phường, các điểm ứng viên và phân bố nhu cầu",
+            alt=f"Bản đồ xem trước khu vực {area_label} gồm ranh giới, các điểm ứng viên và phân bố nhu cầu",
         )
         st.html(
             '<p class="map-hint">'
@@ -780,6 +788,7 @@ def render_baseline_view(
         loads,
         {
             "model": model_key,
+            "data_dir": data_dir_rel,
             "status": res["status_label"],
             "milp_status": res["status"],
             "station_count": common["station_count"],

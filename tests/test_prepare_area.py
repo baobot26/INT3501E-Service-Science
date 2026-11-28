@@ -1,4 +1,4 @@
-"""Offline tests for national OSM store extraction and boundary-driven area preparation."""
+"""Offline tests for national OSM store extraction and drawn-boundary area preparation."""
 from __future__ import annotations
 
 import json
@@ -22,6 +22,22 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 MINI_OSM = FIXTURES / "mini.osm"
 FULL_BOX = box(105.7980, 21.0285, 105.8040, 21.0335)
 NO_WATER_BOX = box(105.7985, 21.0290, 105.8022, 21.0328)
+
+EXPECTED_AREA_FILES = (
+    "boundary.geojson",
+    "station_parameters.csv",
+    "candidates.csv",
+    "demand.csv",
+    "residential_areas.geojson",
+    "forbidden_areas.geojson",
+    "candidates_feasible.csv",
+    "polygon_report.json",
+    "polygon_check.html",
+    "dist_l1.npy",
+    "dist_l1_manifest.json",
+    "area.json",
+    "area.osm",
+)
 
 
 def _make_boundary_gdf(geom=FULL_BOX) -> gpd.GeoDataFrame:
@@ -55,6 +71,25 @@ def _make_pop_tif(path: Path) -> Path:
     ) as dst:
         dst.write(data, 1)
     return path
+
+
+def _setup_build_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    areas_dir = tmp_path / "areas"
+    store_dir = tmp_path / "store"
+    store_dir.mkdir(parents=True)
+    tif_path = _make_pop_tif(tmp_path / "population.tif")
+    fake_pbf = tmp_path / "fake.pbf"
+    fake_pbf.write_bytes(b"")
+
+    monkeypatch.setattr(prepare_area, "_check_store_files", lambda _store: (fake_pbf, tif_path))
+    monkeypatch.setattr(
+        osm_store,
+        "extract_xml",
+        lambda _pbf, _bdf, out_xml, _tag_dicts, buffer_m=200.0: Path(
+            shutil.copyfile(MINI_OSM, out_xml)
+        ),
+    )
+    return store_dir, areas_dir
 
 
 def test_osm_filters_formatting_and_merge():
@@ -177,68 +212,142 @@ def test_prepare_with_empty_forbidden_c(tmp_path):
     assert len(c_gdf) == 0
 
 
-def test_load_boundary_and_name_validation(tmp_path):
-    # Area > max_area_km2
-    big_path = tmp_path / "big.geojson"
-    gpd.GeoDataFrame(
-        geometry=[box(105.7, 20.9, 106.0, 21.2)], crs="EPSG:4326"
-    ).to_file(big_path, driver="GeoJSON")
-    with pytest.raises(InputError, match="exceeds limit"):
-        prepare_area.load_boundary(big_path, max_area_km2=50.0)
+def test_clean_boundary_validation():
+    # Area > 50 km² (10 km x 10 km square ~ 100 km² in Hanoi)
+    big_gdf = prepare_area.boundary_from_points([
+        (21.00, 105.75),
+        (21.00, 105.85),
+        (21.09, 105.85),
+        (21.09, 105.75),
+    ])
+    with pytest.raises(InputError, match="exceeds limit|vượt giới hạn"):
+        prepare_area.clean_boundary(big_gdf, max_area_km2=50.0)
 
     # Centroid outside Vietnam store bounds
-    outside_path = tmp_path / "tokyo.geojson"
-    gpd.GeoDataFrame(
-        geometry=[box(139.70, 35.68, 139.71, 35.69)], crs="EPSG:4326"
-    ).to_file(outside_path, driver="GeoJSON")
-    with pytest.raises(InputError, match="outside the Vietnam store"):
-        prepare_area.load_boundary(outside_path, max_area_km2=50.0)
+    outside_gdf = gpd.GeoDataFrame(geometry=[box(139.70, 35.68, 139.71, 35.69)], crs="EPSG:4326")
+    with pytest.raises(InputError, match="Vietnam|Việt Nam"):
+        prepare_area.clean_boundary(outside_gdf, max_area_km2=50.0)
 
     # Non-polygon geometry
-    pt_path = tmp_path / "point.geojson"
-    gpd.GeoDataFrame(
-        geometry=[Point(105.80, 21.03)], crs="EPSG:4326"
-    ).to_file(pt_path, driver="GeoJSON")
+    pt_gdf = gpd.GeoDataFrame(geometry=[Point(105.80, 21.03)], crs="EPSG:4326")
     with pytest.raises(InputError, match="Polygon"):
-        prepare_area.load_boundary(pt_path, max_area_km2=50.0)
+        prepare_area.clean_boundary(pt_gdf, max_area_km2=50.0)
 
-    # Path traversal / invalid area names
-    for bad_name in ("../x", "a/b", "CauGiay", "bad name", ""):
-        with pytest.raises(InputError, match="invalid area name"):
-            prepare_area.validate_name(bad_name)
-    assert prepare_area.validate_name("cau_giay-01") == "cau_giay-01"
-
-    # CLI rejects invalid name, existing dir without --overwrite, and missing store with exit code 2
-    valid_path = tmp_path / "valid.geojson"
-    _make_boundary_gdf(FULL_BOX).to_file(valid_path, driver="GeoJSON")
-    assert prepare_area.main(["--boundary", str(valid_path), "--name", "../x"]) == 2
-    assert (
-        prepare_area.main([
-            "--boundary", str(valid_path),
-            "--name", "missing_store_test",
-            "--store", str(tmp_path / "empty_store"),
-        ])
-        == 2
+    # Two overlapping polygons dissolve into a single Polygon
+    poly_a = box(105.798, 21.028, 105.802, 21.032)
+    poly_b = box(105.800, 21.030, 105.804, 21.034)
+    merged_gdf = prepare_area.clean_boundary(
+        gpd.GeoDataFrame(geometry=[poly_a, poly_b], crs="EPSG:4326"),
+        max_area_km2=50.0,
     )
+    assert len(merged_gdf) == 1
+    assert merged_gdf.geometry.iloc[0].geom_type == "Polygon"
 
 
-def test_cli_overwrite_guard_and_missing_osmium(tmp_path, monkeypatch):
-    areas_root = tmp_path / "areas"
-    existing = areas_root / "dup_area"
-    existing.mkdir(parents=True)
-    monkeypatch.setattr(prepare_area, "DEFAULT_AREAS_DIR", areas_root)
+def test_boundary_from_points_valid_and_cleaning():
+    square = [
+        (21.0285, 105.7980),
+        (21.0285, 105.8040),
+        (21.0335, 105.8040),
+        (21.0335, 105.7980),
+    ]
+    gdf = prepare_area.boundary_from_points(square)
+    assert len(gdf) == 1
+    assert gdf.crs == prepare_area.WGS84
+    geom = gdf.geometry.iloc[0]
+    assert geom.geom_type == "Polygon"
+    assert geom.bounds == pytest.approx((105.7980, 21.0285, 105.8040, 21.0335))
 
-    valid_path = tmp_path / "valid.geojson"
-    _make_boundary_gdf(FULL_BOX).to_file(valid_path, driver="GeoJSON")
-    assert (
-        prepare_area.main([
-            "--boundary", str(valid_path),
-            "--name", "dup_area",
-            "--store", str(tmp_path / "empty_store"),
+    # Closing duplicate, consecutive duplicate, None/NaN/non-numeric rows are ignored
+    noisy = [
+        (None, 105.80),
+        (21.0285, 105.7980),
+        (21.0285, 105.7980),
+        (float("nan"), 105.80),
+        (21.0285, 105.8040),
+        ("bad", 105.80),
+        (21.0335, 105.8040),
+        (21.0335, 105.7980),
+        (21.0285, 105.7980),
+    ]
+    gdf_noisy = prepare_area.boundary_from_points(noisy)  # type: ignore[arg-type]
+    assert gdf_noisy.geometry.iloc[0].equals(geom)
+
+
+def test_boundary_from_points_order_free_concave_and_dedup():
+    import itertools
+
+    corners = [
+        (21.0285, 105.7980),
+        (21.0285, 105.8040),
+        (21.0335, 105.8040),
+        (21.0335, 105.7980),
+    ]
+    ref_poly = prepare_area.boundary_from_points(corners).geometry.iloc[0]
+
+    # Diagonal (bowtie) order produces the exact same rectangle
+    bowtie = [corners[0], corners[2], corners[1], corners[3]]
+    bowtie_poly = prepare_area.boundary_from_points(bowtie).geometry.iloc[0]
+    assert bowtie_poly.is_valid
+    assert bowtie_poly.area == pytest.approx(ref_poly.area, rel=1e-9)
+    assert bowtie_poly.bounds == pytest.approx((105.7980, 21.0285, 105.8040, 21.0335))
+
+    # All 24 permutations of the 4 corners yield the exact same polygon
+    for perm in itertools.permutations(corners):
+        perm_poly = prepare_area.boundary_from_points(list(perm)).geometry.iloc[0]
+        assert perm_poly.is_valid
+        assert perm_poly.equals(ref_poly)
+
+    # 5 points with one indented inward -> valid 5-vertex concave polygon (not convex hull)
+    concave_pts = [
+        (21.0285, 105.7980),
+        (21.0285, 105.8040),
+        (21.0310, 105.8020),  # indented inward on east side
+        (21.0335, 105.8040),
+        (21.0335, 105.7980),
+    ]
+    concave_poly = prepare_area.boundary_from_points(concave_pts).geometry.iloc[0]
+    assert concave_poly.is_valid
+    assert len(concave_poly.exterior.coords) - 1 == 5
+    assert concave_poly.area < concave_poly.convex_hull.area
+
+    # Non-consecutive duplicate (A, B, A, C, D) is deduplicated to 4 vertices
+    with_non_consec_dup = [corners[0], corners[1], corners[0], corners[2], corners[3]]
+    dedup_poly = prepare_area.boundary_from_points(with_non_consec_dup).geometry.iloc[0]
+    assert len(dedup_poly.exterior.coords) - 1 == 4
+    assert dedup_poly.equals(ref_poly)
+
+
+def test_boundary_from_points_errors():
+    with pytest.raises(InputError, match="ít nhất 3 điểm"):
+        prepare_area.boundary_from_points([])
+
+    with pytest.raises(InputError, match="ít nhất 3 điểm"):
+        prepare_area.boundary_from_points([(21.03, 105.80), (21.04, 105.81)])
+
+    with pytest.raises(InputError, match="thẳng hàng|diện tích bằng 0"):
+        prepare_area.boundary_from_points([
+            (21.03, 105.80),
+            (21.03, 105.81),
+            (21.03, 105.82),
         ])
-        == 2
-    )
 
+    with pytest.raises(InputError, match="dòng 2"):
+        prepare_area.boundary_from_points([
+            (21.03, 105.80),
+            (95.0, 105.81),
+            (21.04, 105.81),
+        ])
+
+    with pytest.raises(InputError, match="dòng 1"):
+        prepare_area.boundary_from_points([
+            (21.03, 200.0),
+            (21.03, 105.81),
+            (21.04, 105.81),
+        ])
+
+
+def test_extract_xml_missing_osmium_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(osm_store.shutil, "which", lambda _name: None)
     with pytest.raises(RuntimeError, match="osmium-tool"):
         osm_store.extract_xml(
@@ -298,83 +407,19 @@ def test_extract_xml_matches_direct_mini_osm(tmp_path):
         assert len(f_extracted) == len(f_direct)
 
 
-def test_app_loads_with_app_data_dir(tmp_path, monkeypatch):
-    streamlit = pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
+def test_build_area_atomic_success(tmp_path, monkeypatch):
+    store_dir, areas_dir = _setup_build_env(tmp_path, monkeypatch)
 
-    app_path = Path(__file__).resolve().parent.parent / "app.py"
-    if not app_path.is_file():
-        pytest.skip("app.py not present")
-
-    tif_path = _make_pop_tif(tmp_path / "population.tif")
-    area_dir = tmp_path / "area_for_app"
-    prepare_area.prepare(
+    result = prepare_area.build_area(
         _make_boundary_gdf(FULL_BOX),
-        area_dir,
-        MINI_OSM,
-        tif_path,
+        "demo",
+        store_dir=store_dir,
+        areas_dir=areas_dir,
         mode="B",
-        radius=500.0,
-        alpha=0.95,
-        cap_scale=1.0,
     )
-
-    monkeypatch.setenv("APP_DATA_DIR", str(area_dir))
-    streamlit.cache_data.clear()
-    try:
-        at = AppTest.from_file(str(app_path), default_timeout=120)
-        at.run()
-        assert not at.exception, [str(e.value) for e in at.exception]
-        enabled_metrics = [m.value for m in at.metric if m.label == "Ứng viên đang bật"]
-        assert enabled_metrics == ["2 điểm"]
-    finally:
-        streamlit.cache_data.clear()
-
-
-EXPECTED_AREA_FILES = (
-    "boundary.geojson",
-    "station_parameters.csv",
-    "candidates.csv",
-    "demand.csv",
-    "residential_areas.geojson",
-    "forbidden_areas.geojson",
-    "candidates_feasible.csv",
-    "polygon_report.json",
-    "polygon_check.html",
-    "dist_l1.npy",
-    "dist_l1_manifest.json",
-    "area.json",
-    "area.osm",
-)
-
-
-def _setup_main_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
-    areas_dir = tmp_path / "areas"
-    tif_path = _make_pop_tif(tmp_path / "population.tif")
-    fake_pbf = tmp_path / "fake.pbf"
-    fake_pbf.write_bytes(b"")
-    boundary_path = tmp_path / "boundary.geojson"
-    _make_boundary_gdf(FULL_BOX).to_file(boundary_path, driver="GeoJSON")
-
-    monkeypatch.setattr(prepare_area, "DEFAULT_AREAS_DIR", areas_dir)
-    monkeypatch.setattr(prepare_area, "_check_store_files", lambda _store: (fake_pbf, tif_path))
-    monkeypatch.setattr(
-        osm_store,
-        "extract_xml",
-        lambda _pbf, _bdf, out_xml, _tag_dicts, buffer_m=200.0: Path(
-            shutil.copyfile(MINI_OSM, out_xml)
-        ),
-    )
-    return areas_dir, boundary_path
-
-
-def test_main_atomic_success(tmp_path, monkeypatch):
-    areas_dir, boundary_path = _setup_main_env(tmp_path, monkeypatch)
-
-    code = prepare_area.main(["--boundary", str(boundary_path), "--name", "demo", "--mode", "B"])
-    assert code == 0
 
     out_dir = areas_dir / "demo"
+    assert result["data_dir"] == out_dir
     for fname in EXPECTED_AREA_FILES:
         assert (out_dir / fname).is_file(), f"missing {fname}"
     assert not (areas_dir / "demo.partial").exists()
@@ -382,79 +427,107 @@ def test_main_atomic_success(tmp_path, monkeypatch):
     assert meta["name"] == "demo"
 
 
-def test_main_overwrite_replaces_old_files(tmp_path, monkeypatch):
-    areas_dir, boundary_path = _setup_main_env(tmp_path, monkeypatch)
-    out_dir = areas_dir / "demo"
-    out_dir.mkdir(parents=True)
-    sentinel = out_dir / "sentinel.txt"
-    sentinel.write_text("old", encoding="utf-8")
-
-    code = prepare_area.main([
-        "--boundary", str(boundary_path),
-        "--name", "demo",
-        "--overwrite",
-    ])
-    assert code == 0
-    assert not sentinel.exists()
-    for fname in EXPECTED_AREA_FILES:
-        assert (out_dir / fname).is_file(), f"missing {fname}"
-    assert not (areas_dir / "demo.partial").exists()
-
-
-def test_main_overwrite_preserves_existing_dir_on_input_error(tmp_path, monkeypatch):
-    areas_dir, boundary_path = _setup_main_env(tmp_path, monkeypatch)
-    out_dir = areas_dir / "demo"
-    out_dir.mkdir(parents=True)
-    sentinel = out_dir / "sentinel.txt"
+def test_build_area_rejects_existing_and_invalid_names(tmp_path, monkeypatch):
+    store_dir, areas_dir = _setup_build_env(tmp_path, monkeypatch)
+    existing = areas_dir / "dup_area"
+    existing.mkdir(parents=True)
+    sentinel = existing / "sentinel.txt"
     sentinel.write_text("keep", encoding="utf-8")
 
-    def boom(*_args, **_kwargs):
-        raise InputError("simulated failure")
-
-    monkeypatch.setattr(prepare_area, "prepare", boom)
-    code = prepare_area.main([
-        "--boundary", str(boundary_path),
-        "--name", "demo",
-        "--overwrite",
-    ])
-    assert code == 2
+    with pytest.raises(InputError, match="đã tồn tại|already exists"):
+        prepare_area.build_area(
+            _make_boundary_gdf(FULL_BOX),
+            "dup_area",
+            store_dir=store_dir,
+            areas_dir=areas_dir,
+        )
     assert sentinel.read_text(encoding="utf-8") == "keep"
-    assert list(out_dir.iterdir()) == [sentinel]
-    assert not (areas_dir / "demo.partial").exists()
+    assert list(existing.iterdir()) == [sentinel]
+    assert not (areas_dir / "dup_area.partial").exists()
+
+    for bad_name in ("../x", "Cầu Giấy", "a/b", "CauGiay", "bad name", ""):
+        with pytest.raises(InputError):
+            prepare_area.build_area(
+                _make_boundary_gdf(FULL_BOX),
+                bad_name,
+                store_dir=store_dir,
+                areas_dir=areas_dir,
+            )
 
 
-def test_main_cleans_up_on_runtime_error_and_allows_retry(tmp_path, monkeypatch):
-    areas_dir, boundary_path = _setup_main_env(tmp_path, monkeypatch)
+def test_build_area_cleans_up_on_runtime_error_and_allows_retry(tmp_path, monkeypatch):
+    store_dir, areas_dir = _setup_build_env(tmp_path, monkeypatch)
     real_prepare = prepare_area.prepare
 
     def crash(*_args, **_kwargs):
         raise RuntimeError("transient error")
 
     monkeypatch.setattr(prepare_area, "prepare", crash)
-    code = prepare_area.main(["--boundary", str(boundary_path), "--name", "retry_area"])
-    assert code == 3
+    with pytest.raises(RuntimeError, match="transient error"):
+        prepare_area.build_area(
+            _make_boundary_gdf(FULL_BOX),
+            "retry_area",
+            store_dir=store_dir,
+            areas_dir=areas_dir,
+        )
     assert not (areas_dir / "retry_area").exists()
     assert not (areas_dir / "retry_area.partial").exists()
 
     monkeypatch.setattr(prepare_area, "prepare", real_prepare)
-    retry_code = prepare_area.main(["--boundary", str(boundary_path), "--name", "retry_area"])
-    assert retry_code == 0
+    result = prepare_area.build_area(
+        _make_boundary_gdf(FULL_BOX),
+        "retry_area",
+        store_dir=store_dir,
+        areas_dir=areas_dir,
+    )
+    assert result["data_dir"] == areas_dir / "retry_area"
     assert (areas_dir / "retry_area" / "area.json").is_file()
     assert not (areas_dir / "retry_area.partial").exists()
 
 
-def test_main_cleans_stale_partial_dir(tmp_path, monkeypatch):
-    areas_dir, boundary_path = _setup_main_env(tmp_path, monkeypatch)
+def test_build_area_cleans_stale_partial_dir(tmp_path, monkeypatch):
+    store_dir, areas_dir = _setup_build_env(tmp_path, monkeypatch)
     stale_partial = areas_dir / "interrupted.partial"
     stale_partial.mkdir(parents=True)
     (stale_partial / "leftover.txt").write_text("stale", encoding="utf-8")
 
-    code = prepare_area.main(["--boundary", str(boundary_path), "--name", "interrupted"])
-    assert code == 0
-    assert not stale_partial.exists()
+    result = prepare_area.build_area(
+        _make_boundary_gdf(FULL_BOX),
+        "interrupted",
+        store_dir=store_dir,
+        areas_dir=areas_dir,
+    )
     out_dir = areas_dir / "interrupted"
+    assert result["data_dir"] == out_dir
+    assert not stale_partial.exists()
     assert (out_dir / "area.json").is_file()
     assert not (out_dir / "leftover.txt").exists()
+
+
+def test_list_areas_filters_invalid_and_missing_dirs(tmp_path):
+    assert prepare_area.list_areas(tmp_path / "does_not_exist") == []
+
+    areas_dir = tmp_path / "areas"
+    areas_dir.mkdir()
+    for name in ("z_area", "a-area_1"):
+        d = areas_dir / name
+        d.mkdir()
+        (d / "area.json").write_text("{}", encoding="utf-8")
+
+    # Ignored entries: .partial, missing area.json, invalid name, regular file
+    partial_dir = areas_dir / "tmp.partial"
+    partial_dir.mkdir()
+    (partial_dir / "area.json").write_text("{}", encoding="utf-8")
+
+    (areas_dir / "incomplete_area").mkdir()
+
+    bad_name_dir = areas_dir / "Invalid Name"
+    bad_name_dir.mkdir()
+    (bad_name_dir / "area.json").write_text("{}", encoding="utf-8")
+
+    (areas_dir / "not_a_dir").write_text("x", encoding="utf-8")
+
+    assert prepare_area.list_areas(areas_dir) == ["a-area_1", "z_area"]
 
 
 def test_prepare_rejects_oversized_grid_before_polygons(tmp_path, monkeypatch):
