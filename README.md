@@ -201,4 +201,62 @@ docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
 
 Lưu ý: image chứa dữ liệu đầu vào tối thiểu để chạy Streamlit smoke test;
 `results/` vẫn không được đóng gói và nên bind-mount khi chạy pipeline thật.
-</sleev-id-m0035>
+
+## Chạy trên vùng tuỳ ý
+
+Thay vì truy vấn Overpass cho từng vùng, có thể tải trước kho dữ liệu cả nước
+vào `store/vn/` một lần rồi cắt dữ liệu theo bất kỳ tệp ranh giới (GeoJSON,
+GeoPackage, Shapefile) nào hoàn toàn offline.
+
+### 1. Tải kho dữ liệu Việt Nam (một lần)
+
+- **OpenStreetMap (Geofabrik):** tạo thư mục `store/vn/` và tải tệp PBF cả nước:
+
+  ```powershell
+  # PowerShell (Windows)
+  New-Item -ItemType Directory -Force -Path store/vn | Out-Null
+  curl.exe -L -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  ```
+
+  ```bash
+  # Bash (Linux / macOS)
+  mkdir -p store/vn
+  curl -L -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  ```
+
+- **Dân số WorldPop:** tải raster dân số Việt Nam độ phân giải 100 m (cùng sản
+  phẩm với tệp `vnm_pop_100m.tif` nhóm đã dùng) từ
+  [WorldPop Hub](https://hub.worldpop.org/) và lưu tại `store/vn/population.tif`.
+
+### 2. Cắt vùng, tối ưu, xuất bản đồ và mở giao diện (Docker)
+
+Ví dụ với ranh giới `data/boundary.geojson` (lưu kết quả chuẩn bị vào `data/areas/caugiay/`):
+
+```powershell
+# PowerShell (Windows)
+# 1) Cắt dữ liệu theo ranh giới (offline, không gọi mạng)
+docker run --rm -v "${PWD}/store:/app/store:ro" -v "${PWD}/data:/app/data" `
+  service-science python -m src.prepare_area --boundary data/boundary.geojson --name caugiay --mode B
+
+# 2) Chạy mô hình tối ưu hai pha
+docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
+  service-science python -m src.run --data-dir data/areas/caugiay --radius 500 --alpha 0.95 --cap-scale 3.0
+
+# 3) Xuất bản đồ HTML cho lần chạy mới nhất với đúng ranh giới vùng
+docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
+  service-science python -m src.make_map --boundary data/areas/caugiay/boundary.geojson
+
+# 4) Mở giao diện Streamlit trỏ vào vùng đã chuẩn bị (http://localhost:8501)
+docker run --rm -p 8501:8501 -v "${PWD}/data:/app/data" -e APP_DATA_DIR=/app/data/areas/caugiay `
+  service-science streamlit run app.py --server.address=0.0.0.0
+```
+
+Trên Bash (Linux / macOS), thay `${PWD}` bằng `$PWD` và ký tự xuống dòng `` ` `` bằng `\`.
+
+### Giới hạn hiện tại
+
+- Chỉ hỗ trợ vùng thuộc đất liền Việt Nam (tâm ranh giới trong khoảng 102–110°E,
+  8–24°N; tính khoảng cách Manhattan trên hệ chiếu UTM `EPSG:32648`).
+- Diện tích ranh giới mặc định ≤ 50 km² (điều chỉnh qua `--max-area-km2`); ma trận
+  khoảng cách L1 từ chối nếu tích số điểm cầu × ứng viên vượt 25.000.000 ô (~100 MB).
+- Dữ liệu OSM phản ánh thời điểm của tệp `vietnam-latest.osm.pbf` trong `store/vn/`.
