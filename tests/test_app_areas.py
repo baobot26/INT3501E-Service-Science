@@ -232,3 +232,175 @@ def test_app_create_area_view_order_free_and_paste(tmp_path, monkeypatch):
         assert any("2" in w.value for w in at.warning)
     finally:
         streamlit.cache_data.clear()
+
+
+def _setup_fake_draw_store(tmp_path: Path, monkeypatch) -> None:
+    fake_store = tmp_path / "fake_store"
+    fake_store.mkdir()
+    (fake_store / prepare_area.PBF_FILENAME).write_bytes(b"")
+    (fake_store / prepare_area.TIF_FILENAME).write_bytes(b"")
+    monkeypatch.setattr(app_areas, "STORE_DIR", fake_store)
+    monkeypatch.setattr(app_areas, "AREAS_DIR", tmp_path / "areas")
+
+
+def test_app_create_area_single_submit_calls_builder(tmp_path, monkeypatch):
+    streamlit = pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    if not APP.is_file():
+        pytest.skip("app.py not present")
+
+    _setup_fake_draw_store(tmp_path, monkeypatch)
+    calls: list[tuple[list[tuple[float, float]], str]] = []
+
+    def _fake_create(points, name, *, store_dir=None, areas_dir=None):
+        calls.append((list(points), name))
+        return {}
+
+    monkeypatch.setattr(app_areas, "create_area_from_points", _fake_create)
+    streamlit.cache_data.clear()
+    try:
+        at = AppTest.from_file(str(APP), default_timeout=120)
+        at.session_state["area"] = app_areas.DRAW_NEW_LABEL
+        at.session_state["area_points"] = [
+            {"lat": lat, "lon": lon} for lat, lon in FULL_BOX_POINTS
+        ]
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+
+        name_input = next(t for t in at.text_input if t.label == "Tên vùng")
+        name_input.set_value("test_enter")
+        create_btn = next(b for b in at.button if b.label == "Tạo vùng")
+        create_btn.click().run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert len(calls) == 1
+        assert calls[0][1] == "test_enter"
+        assert calls[0][0] == FULL_BOX_POINTS
+    finally:
+        streamlit.cache_data.clear()
+
+
+def test_app_create_area_preserves_name_across_rerun(tmp_path, monkeypatch):
+    streamlit = pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    if not APP.is_file():
+        pytest.skip("app.py not present")
+
+    _setup_fake_draw_store(tmp_path, monkeypatch)
+
+    def _fail_create(points, name, *, store_dir=None, areas_dir=None):
+        raise InputError("tạm dừng để kiểm giữ tên")
+
+    monkeypatch.setattr(app_areas, "create_area_from_points", _fail_create)
+    streamlit.cache_data.clear()
+    try:
+        at = AppTest.from_file(str(APP), default_timeout=120)
+        at.session_state["area"] = app_areas.DRAW_NEW_LABEL
+        at.session_state["area_points"] = [
+            {"lat": lat, "lon": lon} for lat, lon in FULL_BOX_POINTS
+        ]
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+
+        # Commit ten_giu_lai via form submit (AppTest only sends form widget values on submit),
+        # then trigger st.rerun() above the form via "Xoá điểm cuối" (and even drop widget key).
+        name_input = next(t for t in at.text_input if t.label == "Tên vùng")
+        name_input.set_value("ten_giu_lai")
+        next(b for b in at.button if b.label == "Tạo vùng").click().run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert next(t for t in at.text_input if t.label == "Tên vùng").value == "ten_giu_lai"
+
+        next(b for b in at.button if b.label == "Xoá điểm cuối").click().run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert len(at.session_state["area_points"]) == 3
+        assert next(t for t in at.text_input if t.label == "Tên vùng").value == "ten_giu_lai"
+
+        # Leave draw view so draw_area_name is no longer rendered and gets culled, then return
+        area_box = next(s for s in at.sidebar.selectbox if s.label == "Khu vực")
+        area_box.select(app_areas.DEFAULT_LABEL).run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        del at.session_state[app_areas._DRAW_NAME_KEY]
+        assert app_areas._DRAW_NAME_KEY not in at.session_state
+        assert at.session_state[app_areas._AREA_NAME_VALUE_KEY] == "ten_giu_lai"
+
+        area_box = next(s for s in at.sidebar.selectbox if s.label == "Khu vực")
+        area_box.select(app_areas.DRAW_NEW_LABEL).run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert next(t for t in at.text_input if t.label == "Tên vùng").value == "ten_giu_lai"
+    finally:
+        streamlit.cache_data.clear()
+
+
+def test_app_create_area_blocks_invalid_request_at_execution(tmp_path, monkeypatch):
+    streamlit = pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    if not APP.is_file():
+        pytest.skip("app.py not present")
+
+    _setup_fake_draw_store(tmp_path, monkeypatch)
+    calls: list[tuple[list[tuple[float, float]], str]] = []
+
+    def _fake_create(points, name, *, store_dir=None, areas_dir=None):
+        calls.append((list(points), name))
+        return {}
+
+    monkeypatch.setattr(app_areas, "create_area_from_points", _fake_create)
+    streamlit.cache_data.clear()
+    try:
+        at = AppTest.from_file(str(APP), default_timeout=120)
+        at.session_state["area"] = app_areas.DRAW_NEW_LABEL
+        at.session_state["area_points"] = [
+            {"lat": 21.0300, "lon": 105.8000},
+            {"lat": 21.0310, "lon": 105.8000},
+            {"lat": 21.0320, "lon": 105.8000},
+        ]
+        at.session_state["_create_request"] = "abc"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert calls == []
+        assert "_create_request" not in at.session_state
+        assert len(at.error) >= 1
+        assert any("thẳng hàng" in e.value for e in at.error)
+    finally:
+        streamlit.cache_data.clear()
+
+
+def test_app_create_area_shows_input_error_and_keeps_name(tmp_path, monkeypatch):
+    streamlit = pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    if not APP.is_file():
+        pytest.skip("app.py not present")
+
+    _setup_fake_draw_store(tmp_path, monkeypatch)
+
+    def _dup_create(points, name, *, store_dir=None, areas_dir=None):
+        raise InputError("vùng 'x' đã tồn tại")
+
+    monkeypatch.setattr(app_areas, "create_area_from_points", _dup_create)
+    streamlit.cache_data.clear()
+    try:
+        at = AppTest.from_file(str(APP), default_timeout=120)
+        at.session_state["area"] = app_areas.DRAW_NEW_LABEL
+        at.session_state["area_points"] = [
+            {"lat": lat, "lon": lon} for lat, lon in FULL_BOX_POINTS
+        ]
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+
+        name_input = next(t for t in at.text_input if t.label == "Tên vùng")
+        name_input.set_value("x")
+        next(b for b in at.button if b.label == "Tạo vùng").click().run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert any("vùng 'x' đã tồn tại" in e.value for e in at.error)
+        assert next(t for t in at.text_input if t.label == "Tên vùng").value == "x"
+
+        # Error and name stay visible even if a follow-up component rerun happens immediately
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert any("vùng 'x' đã tồn tại" in e.value for e in at.error)
+        assert next(t for t in at.text_input if t.label == "Tên vùng").value == "x"
+    finally:
+        streamlit.cache_data.clear()

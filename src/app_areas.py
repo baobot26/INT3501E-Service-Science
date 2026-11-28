@@ -33,6 +33,10 @@ _ACTIVE_AREA_KEY = "_active_area"
 _PENDING_AREA_KEY = "_pending_area"
 _RESET_NAME_KEY = "_reset_draw_name"
 _DRAW_NAME_KEY = "draw_area_name"
+_AREA_NAME_VALUE_KEY = "_area_name_value"
+_CREATE_REQUEST_KEY = "_create_request"
+_CREATE_ERROR_KEY = "_create_area_error"
+_CREATE_EXC_KEY = "_create_area_exception"
 
 _POINTS_KEY = "area_points"
 _LAST_CLICK_KEY = "_last_click_key"
@@ -120,6 +124,8 @@ def select_area_sidebar(
         return None
 
     st.session_state.pop(_MAP_MOUNTED_KEY, None)
+    st.session_state.pop(_CREATE_ERROR_KEY, None)
+    st.session_state.pop(_CREATE_EXC_KEY, None)
     prev = st.session_state.get(_ACTIVE_AREA_KEY)
     if prev is not None and prev != selected:
         _clear_area_run_state()
@@ -358,6 +364,13 @@ def _set_points_external(new_rows: list[dict[str, float | None]]) -> None:
     st.session_state[_EDITOR_VER_KEY] = st.session_state.get(_EDITOR_VER_KEY, 0) + 1
 
 
+def _request_create() -> None:
+    """Ghi nhận yêu cầu tạo vùng trong callback (chạy trước mọi `st.rerun()` trong lượt chạy)."""
+    raw_name = str(st.session_state.get(_DRAW_NAME_KEY) or "")
+    st.session_state[_AREA_NAME_VALUE_KEY] = raw_name
+    st.session_state[_CREATE_REQUEST_KEY] = raw_name.strip()
+
+
 def _reset_create_area_state() -> None:
     """Xoá toàn bộ trạng thái tạm của màn tạo vùng sau khi tạo thành công."""
     for key in (
@@ -371,6 +384,10 @@ def _reset_create_area_state() -> None:
         _EDITOR_BASE_KEY,
         _POINTS_SYNCED_KEY,
         _PASTE_WARN_KEY,
+        _AREA_NAME_VALUE_KEY,
+        _CREATE_REQUEST_KEY,
+        _CREATE_ERROR_KEY,
+        _CREATE_EXC_KEY,
     ):
         st.session_state.pop(key, None)
     st.session_state[_MAP_NONCE_KEY] = st.session_state.get(_MAP_NONCE_KEY, 0) + 1
@@ -475,6 +492,34 @@ def render_draw_area_view() -> None:
         st.session_state[_POINTS_KEY] = []
     points = _normalize_points_rows(st.session_state[_POINTS_KEY])
     st.session_state[_POINTS_KEY] = points
+
+    # Xử lý yêu cầu tạo vùng trước bản đồ và mọi st.rerun() để không mất lần bấm đầu
+    if _CREATE_REQUEST_KEY in st.session_state:
+        cleaned_name = str(st.session_state.pop(_CREATE_REQUEST_KEY) or "").strip()
+        st.session_state.pop(_CREATE_ERROR_KEY, None)
+        st.session_state.pop(_CREATE_EXC_KEY, None)
+        req_coords = _valid_coords(points)
+        req_status = _evaluate_points(points)
+        if not req_status["valid"]:
+            st.session_state[_CREATE_ERROR_KEY] = req_status["detail"] or req_status["status_label"]
+        else:
+            try:
+                with st.spinner("Đang dựng vùng từ kho dữ liệu (khoảng 30 giây)…"):
+                    create_area_from_points(
+                        [(lat, lon) for _, lat, lon in req_coords],
+                        cleaned_name,
+                        store_dir=STORE_DIR,
+                        areas_dir=AREAS_DIR,
+                    )
+            except InputError as exc:
+                st.session_state[_CREATE_ERROR_KEY] = str(exc)
+            except Exception as exc:
+                st.session_state[_CREATE_ERROR_KEY] = f"Không thể dựng vùng '{cleaned_name}': {exc}"
+                st.session_state[_CREATE_EXC_KEY] = exc
+            else:
+                _reset_create_area_state()
+                st.session_state[_PENDING_AREA_KEY] = cleaned_name
+                st.rerun()
 
     # Phát hiện thay đổi từ bên ngoài (vd. lần mở đầu hoặc test gán sẵn session_state["area_points"])
     if _EDITOR_BASE_KEY not in st.session_state or points != st.session_state.get(_POINTS_SYNCED_KEY):
@@ -646,40 +691,39 @@ def render_draw_area_view() -> None:
                 elif warn_msg:
                     st.warning(warn_msg)
 
-        if st.session_state.pop(_RESET_NAME_KEY, False) or _DRAW_NAME_KEY not in st.session_state:
-            st.session_state[_DRAW_NAME_KEY] = datetime.now().strftime("vung_%Y%m%d_%H%M%S")
+        if st.session_state.pop(_RESET_NAME_KEY, False):
+            default_name = datetime.now().strftime("vung_%Y%m%d_%H%M%S")
+            st.session_state[_AREA_NAME_VALUE_KEY] = default_name
+            st.session_state[_DRAW_NAME_KEY] = default_name
+        elif _DRAW_NAME_KEY not in st.session_state:
+            if _AREA_NAME_VALUE_KEY not in st.session_state:
+                st.session_state[_AREA_NAME_VALUE_KEY] = datetime.now().strftime("vung_%Y%m%d_%H%M%S")
+            st.session_state[_DRAW_NAME_KEY] = st.session_state[_AREA_NAME_VALUE_KEY]
+        else:
+            st.session_state[_AREA_NAME_VALUE_KEY] = st.session_state[_DRAW_NAME_KEY]
 
-        area_name = st.text_input(
-            "Tên vùng",
-            key=_DRAW_NAME_KEY,
-            help="Chỉ dùng chữ thường không dấu, chữ số, dấu gạch dưới (_) và gạch ngang (-): [a-z0-9_-].",
-        )
-        st.caption("Quy tắc tên vùng: chỉ gồm `[a-z0-9_-]` (ví dụ `danang_order_free`, `hcm_q1`).")
+        with st.form("create_area_form", border=False, enter_to_submit=True):
+            area_name = st.text_input(
+                "Tên vùng",
+                key=_DRAW_NAME_KEY,
+                help="Chỉ dùng chữ thường không dấu, chữ số, dấu gạch dưới (_) và gạch ngang (-): [a-z0-9_-].",
+            )
+            st.caption("Quy tắc tên vùng: chỉ gồm `[a-z0-9_-]` (ví dụ `danang_order_free`, `hcm_q1`).")
+            submitted = st.form_submit_button(
+                "Tạo vùng",
+                type="primary",
+                width="stretch",
+                disabled=not status["valid"],
+                on_click=_request_create,
+            )
 
-        create_clicked = st.button(
-            "Tạo vùng",
-            type="primary",
-            width="stretch",
-            disabled=not status["valid"],
-        )
+        if submitted and area_name is not None:
+            st.session_state[_AREA_NAME_VALUE_KEY] = area_name
 
-        if create_clicked:
-            cleaned_name = area_name.strip()
-            try:
-                with st.spinner("Đang dựng vùng từ kho dữ liệu (khoảng 30 giây)…"):
-                    create_area_from_points(
-                        [(lat, lon) for _, lat, lon in coords],
-                        cleaned_name,
-                        store_dir=STORE_DIR,
-                        areas_dir=AREAS_DIR,
-                    )
-            except InputError as exc:
-                st.error(str(exc))
-            except Exception as exc:
-                st.error(f"Không thể dựng vùng '{cleaned_name}': {exc}")
+        create_err = st.session_state.get(_CREATE_ERROR_KEY)
+        create_exc = st.session_state.get(_CREATE_EXC_KEY)
+        if create_err:
+            st.error(create_err)
+            if create_exc is not None:
                 with st.expander("Chi tiết lỗi"):
-                    st.exception(exc)
-            else:
-                _reset_create_area_state()
-                st.session_state[_PENDING_AREA_KEY] = cleaned_name
-                st.rerun()
+                    st.exception(create_exc)
