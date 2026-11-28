@@ -141,3 +141,41 @@ def test_build_solution_map_dark_mode_uses_dark_tokens(tmp_path):
     assert str(MAP_DARK["legend_bg"]) in html
 
 
+def test_main_resolves_boundary_from_summary_data_dir(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    run_with_area = tmp_path / "run_area"
+    run_with_area.mkdir()
+    (run_with_area / "summary.json").write_text(
+        json.dumps({"data_dir": "data/areas/hcm_q1"}), encoding="utf-8"
+    )
+    assert make_map.boundary_path_for_run(run_with_area) == Path("data/areas/hcm_q1/boundary.geojson")
+
+    run_default = tmp_path / "run_default"
+    run_default.mkdir()
+    (run_default / "summary.json").write_text(json.dumps({"status": "optimal"}), encoding="utf-8")
+    assert make_map.boundary_path_for_run(run_default) == Path("data/boundary.geojson")
+
+    captured = {}
+
+    class _DummyMap:
+        def save(self, path):
+            captured["saved"] = Path(path)
+
+    def _fake_build_map(run_dir, boundary_path):
+        captured["run_dir"] = Path(run_dir)
+        captured["boundary_path"] = Path(boundary_path)
+        return _DummyMap()
+
+    monkeypatch.setattr(make_map, "build_map", _fake_build_map)
+    make_map.main(["--run", str(run_with_area)])
+    assert captured["run_dir"] == run_with_area
+    assert captured["boundary_path"] == Path("data/areas/hcm_q1/boundary.geojson")
+    assert captured["saved"] == run_with_area / "map.html"
+
+    with pytest.raises(SystemExit):
+        make_map.main(["--run", str(run_with_area), "--boundary", "data/boundary.geojson"])
+
+
+

@@ -52,7 +52,8 @@ def test_app_runs_the_default_scenario():
 def test_app_runs_fixed_p_with_its_default():
     at = AppTest.from_file(str(APP), default_timeout=600)
     at.run()
-    at.sidebar.selectbox[0].select_index(1)  # fixed p, p left at its default
+    objective_box = next(s for s in at.sidebar.selectbox if s.label == "Mục tiêu")
+    objective_box.select_index(1)  # fixed p, p left at its default
     at.button[0].click()
     at.run()
     assert not at.exception, [str(e.value) for e in at.exception]
@@ -86,8 +87,9 @@ def test_model_selector_appears_before_form_and_switches_inputs():
         "Max covering",
         "p-median",
     ]
-    # Selector sits above the parameter form in the sidebar
-    assert at.sidebar.children[1].type == "radio"
+    # Selector sits above the parameter form in the sidebar (below the area selector)
+    sidebar_types = [at.sidebar.children[idx].type for idx in sorted(at.sidebar.children)]
+    assert sidebar_types.index("selectbox") < sidebar_types.index("radio") < sidebar_types.index("form")
 
     radio.set_value("Set covering").run()
     assert not at.exception, [str(e.value) for e in at.exception]

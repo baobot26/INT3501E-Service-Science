@@ -1,25 +1,24 @@
-"""Prepare a standalone area data directory from a boundary polygon and local national store.
+"""Prepare a standalone area data directory from a set of boundary vertices and local national store.
 
 Reads from `store/vn/` (offline):
     vietnam-latest.osm.pbf   Geofabrik Vietnam OSM extract
     population.tif           WorldPop Vietnam 100 m population GeoTIFF
 
 Writes to `data/areas/<name>/` in the exact format expected by `src.run` and `app.py`.
-
-Exit codes: 0 prepared, 2 input/validation error (including missing store files), 3 other error.
 """
 from __future__ import annotations
 
-import argparse
 import json
+import math
 import re
 import shutil
-import sys
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
 import geopandas as gpd
 from shapely import make_valid
+from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 
 from src import distances_l1, osm_store, polygons
@@ -52,38 +51,114 @@ def validate_name(name: str) -> str:
     """Ensure area name is a safe single path segment matching `[a-z0-9_-]+`."""
     if not name or not NAME_RE.fullmatch(name):
         raise InputError(
-            f"invalid area name {name!r}: only lowercase letters, digits, '_' and '-' are allowed"
+            f"tên vùng {name!r} không hợp lệ: chỉ dùng chữ thường không dấu, chữ số, '_' và '-' "
+            "(invalid area name)"
         )
     return name
 
 
-def load_boundary(path: str | Path, max_area_km2: float = 50.0) -> gpd.GeoDataFrame:
-    """Read, validate, clean, and dissolve a boundary file into a single WGS84 polygon GDF."""
-    file_path = Path(path)
-    if not file_path.is_file():
-        raise InputError(f"boundary file not found: {file_path}")
-
+def _parse_valid_point(item) -> tuple[float, float] | None:
+    """Return `(lat, lon)` as finite floats or `None` if missing / non-numeric."""
+    if item is None:
+        return None
     try:
-        gdf = gpd.read_file(file_path)
-    except Exception as exc:
-        raise InputError(f"cannot read boundary file {file_path}: {exc}") from exc
+        raw_lat, raw_lon = item[0], item[1]
+    except (TypeError, IndexError, KeyError):
+        return None
+    if raw_lat is None or raw_lon is None:
+        return None
+    try:
+        lat = float(raw_lat)
+        lon = float(raw_lon)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None
+    return (lat, lon)
 
+
+def order_around_centroid(
+    points: Sequence[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Sort `(lat, lon)` points counter-clockwise by polar angle around their centroid.
+
+    Deterministic even if a point coincides with the centroid (`atan2(0, 0)`).
+    """
+    valid = [pt for item in points if (pt := _parse_valid_point(item)) is not None]
+    if len(valid) < 3:
+        return valid
+    cy = math.fsum(lat for lat, _ in valid) / len(valid)
+    cx = math.fsum(lon for _, lon in valid) / len(valid)
+    return sorted(
+        valid,
+        key=lambda pt: (
+            math.atan2(pt[0] - cy, pt[1] - cx),
+            (pt[0] - cy) ** 2 + (pt[1] - cx) ** 2,
+            pt[0],
+            pt[1],
+        ),
+    )
+
+
+def boundary_from_points(points: Sequence[tuple[float, float]]) -> gpd.GeoDataFrame:
+    """Build a valid WGS84 Polygon GeoDataFrame from a set of `(lat, lon)` points.
+
+    Input order does not matter: duplicates are removed (keeping first occurrence) and
+    points are connected around their centroid so concave shapes are preserved without
+    falling back to a convex hull.
+    """
+    seen: set[tuple[float, float]] = set()
+    cleaned: list[tuple[float, float]] = []
+    for row_idx, item in enumerate(points, start=1):
+        parsed = _parse_valid_point(item)
+        if parsed is None:
+            continue
+        lat, lon = parsed
+        if not (-90.0 <= lat <= 90.0):
+            raise InputError(f"dòng {row_idx}: vĩ độ {lat} ngoài khoảng [-90, 90]")
+        if not (-180.0 <= lon <= 180.0):
+            raise InputError(f"dòng {row_idx}: kinh độ {lon} ngoài khoảng [-180, 180]")
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        cleaned.append(parsed)
+
+    if len(cleaned) < 3:
+        raise InputError("cần ít nhất 3 điểm phân biệt để tạo đa giác")
+
+    raw_coords = [(lon, lat) for lat, lon in cleaned]
+    hull = MultiPoint(raw_coords).convex_hull
+    if hull.geom_type != "Polygon" or hull.area <= 0:
+        raise InputError("các điểm thẳng hàng, đa giác có diện tích bằng 0")
+
+    ordered = order_around_centroid(cleaned)
+    poly = Polygon([(lon, lat) for lat, lon in ordered])
+    if not poly.is_valid:
+        raise InputError("các điểm không tạo được đa giác đơn")
+    if poly.is_empty or poly.area <= 0:
+        raise InputError("đa giác có diện tích bằng 0")
+
+    return gpd.GeoDataFrame(geometry=[poly], crs=WGS84)
+
+
+def clean_boundary(gdf: gpd.GeoDataFrame, max_area_km2: float = 50.0) -> gpd.GeoDataFrame:
+    """Validate, clean, and dissolve a boundary GeoDataFrame into a single WGS84 polygon GDF."""
     if gdf.empty:
-        raise InputError(f"boundary file is empty: {file_path}")
+        raise InputError("ranh giới trống (boundary is empty)")
 
     gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
     if gdf.empty:
-        raise InputError(f"boundary file has no non-empty geometries: {file_path}")
+        raise InputError("ranh giới không có hình học hợp lệ (boundary has no non-empty geometries)")
 
     if gdf.crs is None:
-        raise InputError(f"boundary file has no CRS: {file_path}")
+        raise InputError("ranh giới thiếu hệ tọa độ CRS (boundary has no CRS)")
 
     gdf = gdf.to_crs(WGS84)
     geom_types = set(gdf.geometry.geom_type)
     if not geom_types.issubset({"Polygon", "MultiPolygon"}):
         raise InputError(
-            "boundary must contain only Polygon or MultiPolygon geometries, "
-            f"got {sorted(geom_types)}"
+            "ranh giới chỉ được chứa hình Polygon hoặc MultiPolygon "
+            f"(boundary must contain only Polygon or MultiPolygon, got {sorted(geom_types)})"
         )
 
     valid_geoms = make_valid(gdf.geometry)
@@ -99,16 +174,16 @@ def load_boundary(path: str | Path, max_area_km2: float = 50.0) -> gpd.GeoDataFr
         or merged.is_empty
         or merged.geom_type not in ("Polygon", "MultiPolygon")
     ):
-        raise InputError("boundary does not produce a valid polygon")
+        raise InputError("ranh giới không tạo thành đa giác hợp lệ (boundary does not produce a valid polygon)")
 
     boundary = gpd.GeoDataFrame(geometry=[merged], crs=WGS84)
     area_km2 = float(boundary.to_crs(METRIC_CRS).area.iloc[0]) / 1e6
     if area_km2 <= 0:
-        raise InputError("boundary has zero area")
+        raise InputError("ranh giới có diện tích bằng 0 (boundary has zero area)")
     if max_area_km2 is not None and area_km2 > max_area_km2:
         raise InputError(
-            f"boundary area {area_km2:.2f} km² exceeds limit {max_area_km2:g} km²; "
-            "use a smaller boundary or raise --max-area-km2"
+            f"diện tích vùng vẽ {area_km2:.2f} km² vượt giới hạn {max_area_km2:g} km² "
+            "(boundary area exceeds limit); hãy vẽ vùng nhỏ hơn"
         )
 
     # shortcut: Vietnam store bounds; generalize when adding other country stores.
@@ -119,8 +194,8 @@ def load_boundary(path: str | Path, max_area_km2: float = 50.0) -> gpd.GeoDataFr
         and VN_LAT_BOUNDS[0] <= lat <= VN_LAT_BOUNDS[1]
     ):
         raise InputError(
-            f"boundary centroid ({lat:.4f}°N, {lon:.4f}°E) is outside the Vietnam store "
-            f"bounds (lat {VN_LAT_BOUNDS[0]}–{VN_LAT_BOUNDS[1]}, "
+            f"tâm vùng vẽ ({lat:.4f}°N, {lon:.4f}°E) nằm ngoài phạm vi kho Việt Nam "
+            f"(outside the Vietnam store bounds: lat {VN_LAT_BOUNDS[0]}–{VN_LAT_BOUNDS[1]}, "
             f"lon {VN_LON_BOUNDS[0]}–{VN_LON_BOUNDS[1]})"
         )
 
@@ -229,76 +304,54 @@ def prepare(
     }
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(
-        description="Prepare area input files from a boundary polygon and local national store."
-    )
-    ap.add_argument("--boundary", type=Path, required=True, help="boundary file (GeoJSON/GPKG/SHP)")
-    ap.add_argument("--name", type=str, required=True, help="area folder name under data/areas/")
-    ap.add_argument("--store", type=Path, default=DEFAULT_STORE, help="national store directory")
-    ap.add_argument("--mode", choices=["A", "B"], default="B", help="residential area H method")
-    ap.add_argument("--radius", type=float, default=500.0, help="service radius R (m)")
-    ap.add_argument("--alpha", type=float, default=0.95, help="minimum served demand fraction")
-    ap.add_argument("--cap-scale", type=float, default=1.0, help="station capacity scale factor")
-    ap.add_argument(
-        "--max-area-km2",
-        type=float,
-        default=50.0,
-        help="maximum allowed boundary area in km²",
-    )
-    ap.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="allow replacing an existing data/areas/<name>/ directory",
-    )
-    return ap.parse_args(argv)
-
-
 def _check_store_files(store_dir: Path) -> tuple[Path, Path]:
-    pbf_path = store_dir / PBF_FILENAME
-    tif_path = store_dir / TIF_FILENAME
+    store_root = Path(store_dir)
+    pbf_path = store_root / PBF_FILENAME
+    tif_path = store_root / TIF_FILENAME
     missing = []
     if not pbf_path.is_file():
         missing.append(
             f"missing OSM PBF: {pbf_path}\n"
-            f"  Download (PowerShell): curl.exe -L -o {pbf_path} "
+            f"  Download (PowerShell): curl.exe -L -R -o {pbf_path} "
             "https://download.geofabrik.de/asia/vietnam-latest.osm.pbf"
         )
     if not tif_path.is_file():
         missing.append(
             f"missing WorldPop raster: {tif_path}\n"
-            "  Download Vietnam 100 m population GeoTIFF from WorldPop Hub "
-            f"(https://hub.worldpop.org/) and place it at {tif_path}"
+            "  Download vnm_pop_2025_CN_100m_R2025A_v1.tif (WorldPop 2025, constrained, 100 m) "
+            f"from WorldPop Hub (https://hub.worldpop.org/) and place it at {tif_path}"
         )
     if missing:
         raise InputError("\n".join(missing))
     return pbf_path, tif_path
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
-    partial: Path | None = None
+def build_area(
+    boundary_gdf: gpd.GeoDataFrame,
+    name: str,
+    *,
+    store_dir: str | Path = DEFAULT_STORE,
+    areas_dir: str | Path = DEFAULT_AREAS_DIR,
+    mode: str = "B",
+    max_area_km2: float = 50.0,
+) -> dict:
+    """Validate inputs, extract OSM data, and atomically build `areas_dir / name`."""
+    area_name = validate_name(name)
+    areas_root = Path(areas_dir)
+    out_dir = areas_root / area_name
+    if out_dir.exists():
+        raise InputError(
+            f"vùng '{area_name}' đã tồn tại tại {out_dir}; "
+            "hãy chọn tên khác hoặc xoá thư mục cũ trước khi dựng lại"
+        )
 
+    pbf_path, tif_path = _check_store_files(Path(store_dir))
+    boundary = clean_boundary(boundary_gdf, max_area_km2=max_area_km2)
+
+    partial: Path | None = out_dir.with_name(f"{area_name}.partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
     try:
-        if not (0.0 <= args.alpha <= 1.0):
-            raise InputError("alpha must be in [0, 1]")
-        if args.radius <= 0 or args.cap_scale <= 0 or args.max_area_km2 <= 0:
-            raise InputError("radius, cap-scale and max-area-km2 must be positive")
-
-        area_name = validate_name(args.name)
-        out_dir = DEFAULT_AREAS_DIR / area_name
-        if out_dir.exists() and not args.overwrite:
-            raise InputError(
-                f"output directory already exists: {out_dir} (pass --overwrite to replace)"
-            )
-
-        pbf_path, tif_path = _check_store_files(args.store)
-        boundary = load_boundary(args.boundary, max_area_km2=args.max_area_km2)
-
-        partial = out_dir.with_name(f"{area_name}.partial")
-        shutil.rmtree(partial, ignore_errors=True)
-        partial.mkdir(parents=True)
-
         osm_xml = partial / "area.osm"
         osm_store.extract_xml(
             pbf_path,
@@ -306,43 +359,33 @@ def main(argv: list[str] | None = None) -> int:
             osm_xml,
             [CANDIDATE_TAGS, *H_TAGS.values(), C_TAGS],
         )
-
         result = prepare(
             boundary,
             partial,
             osm_xml,
             tif_path,
-            mode=args.mode,
-            radius=args.radius,
-            alpha=args.alpha,
-            cap_scale=args.cap_scale,
+            mode=mode,
             name=area_name,
             pbf_path=pbf_path,
         )
-
-        if out_dir.exists():
-            shutil.rmtree(out_dir)
         partial.rename(out_dir)
         partial = None
-    except (InputError, FileNotFoundError, ValueError) as exc:
-        print(f"input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 3
     finally:
         if partial is not None:
             shutil.rmtree(partial, ignore_errors=True)
 
-    print(
-        f"\nPrepared area '{area_name}' in {out_dir} "
-        f"({result['boundary_km2']} km², {result['demand_points']} demand points, "
-        f"{result['candidates_feasible']}/{result['candidates_total']} feasible candidates, "
-        f"coverage upper bound {result['coverage_upper_bound_pct']:.2f}%)."
+    return {**result, "data_dir": out_dir}
+
+
+def list_areas(areas_dir: str | Path = DEFAULT_AREAS_DIR) -> list[str]:
+    """Return sorted prepared area names under `areas_dir` matching `NAME_RE` with `area.json`."""
+    root = Path(areas_dir)
+    if not root.is_dir():
+        return []
+    return sorted(
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir()
+        and NAME_RE.fullmatch(entry.name)
+        and (entry / "area.json").is_file()
     )
-    print(f"Next step:\n  python -m src.run --data-dir {out_dir}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

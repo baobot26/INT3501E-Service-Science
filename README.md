@@ -205,50 +205,60 @@ Lưu ý: image chứa dữ liệu đầu vào tối thiểu để chạy Streaml
 ## Chạy trên vùng tuỳ ý
 
 Thay vì truy vấn Overpass cho từng vùng, có thể tải trước kho dữ liệu cả nước
-vào `store/vn/` một lần rồi cắt dữ liệu theo bất kỳ tệp ranh giới (GeoJSON,
-GeoPackage, Shapefile) nào hoàn toàn offline.
+vào `store/vn/` một lần rồi **chọn danh sách đỉnh (click trên bản đồ hoặc nhập/dán
+tọa độ vào bảng) trong ứng dụng Streamlit** để dựng dữ liệu vùng mới hoàn toàn offline.
 
 ### 1. Tải kho dữ liệu Việt Nam (một lần)
 
-- **OpenStreetMap (Geofabrik):** tạo thư mục `store/vn/` và tải tệp PBF cả nước:
+- **OpenStreetMap (Geofabrik):** tạo thư mục `store/vn/` và tải tệp PBF cả nước
+  (cờ `-R` giữ nguyên ngày cập nhật gốc của bản OSM trong `area.json`):
 
   ```powershell
   # PowerShell (Windows)
   New-Item -ItemType Directory -Force -Path store/vn | Out-Null
-  curl.exe -L -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  curl.exe -L -R -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
   ```
 
   ```bash
   # Bash (Linux / macOS)
   mkdir -p store/vn
-  curl -L -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  curl -L -R -o store/vn/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
   ```
 
-- **Dân số WorldPop:** tải raster dân số Việt Nam độ phân giải 100 m (cùng sản
-  phẩm với tệp `vnm_pop_100m.tif` nhóm đã dùng) từ
-  [WorldPop Hub](https://hub.worldpop.org/) và lưu tại `store/vn/population.tif`.
+- **Dân số WorldPop:** tải sản phẩm **`vnm_pop_2025_CN_100m_R2025A_v1.tif`**
+  (WorldPop 2025, constrained, 100 m) từ
+  [WorldPop Hub](https://hub.worldpop.org/) và đổi tên thành `store/vn/population.tif`.
 
-### 2. Cắt vùng, tối ưu, xuất bản đồ và mở giao diện (Docker)
+### 2. Tạo vùng mới và chạy tối ưu trong ứng dụng (Docker)
 
-Ví dụ với ranh giới `data/boundary.geojson` (lưu kết quả chuẩn bị vào `data/areas/caugiay/`):
+Mở ứng dụng Streamlit với `store/` gắn chỉ đọc (`:ro`) và `data/` có quyền ghi
+để lưu các vùng vừa tạo vào `data/areas/<name>/` (truy cập http://localhost:8501):
 
 ```powershell
 # PowerShell (Windows)
-# 1) Cắt dữ liệu theo ranh giới (offline, không gọi mạng)
-docker run --rm -v "${PWD}/store:/app/store:ro" -v "${PWD}/data:/app/data" `
-  service-science python -m src.prepare_area --boundary data/boundary.geojson --name caugiay --mode B
-
-# 2) Chạy mô hình tối ưu hai pha
-docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
-  service-science python -m src.run --data-dir data/areas/caugiay --radius 500 --alpha 0.95 --cap-scale 3.0
-
-# 3) Xuất bản đồ HTML cho lần chạy mới nhất với đúng ranh giới vùng
-docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
-  service-science python -m src.make_map --boundary data/areas/caugiay/boundary.geojson
-
-# 4) Mở giao diện Streamlit trỏ vào vùng đã chuẩn bị (http://localhost:8501)
-docker run --rm -p 8501:8501 -v "${PWD}/data:/app/data" -e APP_DATA_DIR=/app/data/areas/caugiay `
+docker run --rm -p 8501:8501 `
+  -v "${PWD}/store:/app/store:ro" -v "${PWD}/data:/app/data" `
   service-science streamlit run app.py --server.address=0.0.0.0
+```
+
+Các bước tạo vùng trên giao diện:
+
+1. Ở đầu thanh bên mục **Khu vực**, chọn **➕ Tạo vùng mới**.
+2. Phóng to tới phường/quận cần khảo sát, click các điểm bao quanh vùng (thứ tự không quan trọng) hoặc dán tọa độ vào ô **Dán nhanh tọa độ**.
+3. Xem đa giác xem trước và trạng thái hợp lệ (≤ 50 km², thuộc phạm vi Việt Nam).
+4. Đặt tên vùng (chỉ gồm `[a-z0-9_-]`) rồi bấm **Tạo vùng** (khoảng 30 giây).
+5. Ứng dụng tự chuyển sang vùng vừa tạo; chọn mô hình, chỉnh tham số và bấm **Chạy kịch bản**.
+
+### 3. Chạy CLI trên vùng đã tạo
+
+```powershell
+# 1) Chạy mô hình tối ưu hai pha trên vùng đã dựng
+docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
+  service-science python -m src.run --data-dir data/areas/<name> --radius 500 --alpha 0.95 --cap-scale 3.0
+
+# 2) Xuất bản đồ HTML cho lần chạy mới nhất (tự lấy ranh giới từ data_dir trong summary.json)
+docker run --rm -v "${PWD}/data:/app/data" -v "${PWD}/results:/app/results" `
+  service-science python -m src.make_map
 ```
 
 Trên Bash (Linux / macOS), thay `${PWD}` bằng `$PWD` và ký tự xuống dòng `` ` `` bằng `\`.
@@ -257,6 +267,7 @@ Trên Bash (Linux / macOS), thay `${PWD}` bằng `$PWD` và ký tự xuống dò
 
 - Chỉ hỗ trợ vùng thuộc đất liền Việt Nam (tâm ranh giới trong khoảng 102–110°E,
   8–24°N; tính khoảng cách Manhattan trên hệ chiếu UTM `EPSG:32648`).
-- Diện tích ranh giới mặc định ≤ 50 km² (điều chỉnh qua `--max-area-km2`); ma trận
-  khoảng cách L1 từ chối nếu tích số điểm cầu × ứng viên vượt 25.000.000 ô (~100 MB).
+- Diện tích ranh giới tối đa 50 km²; ma trận khoảng cách L1 từ chối nếu tích số
+  điểm cầu × ứng viên vượt 25.000.000 ô (~100 MB).
 - Dữ liệu OSM phản ánh thời điểm của tệp `vietnam-latest.osm.pbf` trong `store/vn/`.
+- App không ghi đè vùng đã tồn tại: muốn dựng lại một vùng, hãy xoá thư mục `data/areas/<name>/` trước rồi tạo lại.
